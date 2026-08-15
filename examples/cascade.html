@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>neon-text — cascade</title>
+<link rel="stylesheet" href="../src/neon.css">
+<style>
+  body { margin:0; background:#050506; display:grid; grid-template-rows:1fr 1fr; height:100vh; }
+  .stage { width:100%; height:100%; }
+</style>
+
+<div class="stage" id="a"></div>
+<div class="stage" id="b"></div>
+
+<script src="../src/neon.js"></script>
+<script>
+  // Two independent signs on one page. All custom properties are set on the
+  // scene element rather than :root, so instances never fight over colour.
+  (async function () {
+    await Neon.loadFont('Monoton');          // await, or the dots sample a fallback face
+    const top = Neon.create('#a', {
+      text: 'OPEN|ALL NIGHT', font: 'Monoton', mode: 'cascade',
+      glow: '#ff2d95', hue: 30, gap: 8
+    });
+
+    await Neon.loadFont('Anton');
+    const bottom = Neon.create('#b', { text: 'ASSEMBLE', font: 'Anton' });
+    bottom.look('Swarm');                    // particles build the letterform, then ignite
+
+    // replay both every few seconds so the sequences stay watchable
+    setInterval(function () { top.replay(); bottom.replay(); }, 6000);
+  })();
+</script>

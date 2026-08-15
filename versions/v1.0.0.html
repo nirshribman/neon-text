@@ -1,0 +1,1144 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>neon-text v1.0.0</title>
+<!-- frozen build v1.0.0 — do not edit -->
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="A neon sign that assembles, strikes and burns, built from a particle field.">
+<style>
+/* neon-text v1.0.0 — scene styles
+   Everything is scoped to .neon-scene and driven by custom properties set on
+   that element (never on :root), so several signs can share a page. */
+
+.neon-scene {
+  position: relative;
+  overflow: hidden;
+  background: #070708;
+  --nc: #ff2d95;      /* current glow colour            */
+  --br: 55%;          /* bloom radius                   */
+  --bx: 50%;          /* bloom centre, % across scene   */
+  --pool: 0;          /* floor light intensity          */
+  --room: 1;          /* wall/floor/vignette presence   */
+  --wall: #17171b;    /* wall tint                      */
+  --floor: 74%;       /* ground line, % down the scene  */
+  --ref: .2;          /* reflection opacity             */
+}
+.neon-scene > * { position: absolute; }
+
+/* back wall — neon needs a plane to fall on, not a void */
+.neon-wall {
+  inset: 0; z-index: 0;
+  background:
+    radial-gradient(120% 80% at 50% 38%, var(--wall) 0%, #0b0b0d 58%, #070708 100%),
+    linear-gradient(#0a0a0c, #050506);
+}
+/* ground. No hard seam: it has to arrive as a gradient, or it reads as a
+   rectangle pasted over the wall. */
+.neon-floor {
+  left: 0; right: 0; top: calc(var(--floor) - 9%); bottom: 0; z-index: 1;
+  opacity: var(--room);
+  background: linear-gradient(rgba(20,20,24,0) 0%, #0d0d10 26%, #08080a 60%, #050506 100%);
+}
+.neon-canvas { display: block; inset: 0; z-index: 2; }
+
+/* the pool of light thrown onto the floor. Its top edge MUST be masked — a
+   radial gradient clipped by a box edge draws a hard rule across the scene. */
+.neon-pool {
+  left: 0; right: 0; top: var(--floor); height: 52%; z-index: 3;
+  pointer-events: none; mix-blend-mode: screen;
+  opacity: calc(var(--pool) * var(--room));
+  background: radial-gradient(58% 100% at var(--bx) 0%, var(--nc) 0%, transparent 72%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 60%, transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 60%, transparent 100%);
+}
+
+/* the tube: real DOM text, one span per character, three stacked layers */
+.neon-off, .neon-lit { inset: 0; z-index: 4; pointer-events: none; }
+.neon-off span, .neon-lit span, .neon-ref span { position: absolute; white-space: pre; }
+.neon-off span { color: #212125; text-shadow: 0 1px 0 rgba(255,255,255,.05); }
+/* both start dark and are lit per frame by the engine. The reflection needs the
+   same default as the lit layer — without it, any frame the engine doesn't
+   reach renders the reflection at FULL strength over an unlit sign. */
+.neon-lit span, .neon-ref span { opacity: 0; }
+
+/* reflection: foreshortened about the ground line, blurred, masked to a fade */
+.neon-refwrap {
+  inset: 0; z-index: 3; pointer-events: none; opacity: var(--room);
+  -webkit-mask-image: linear-gradient(to bottom, transparent var(--floor), #000 calc(var(--floor) + 2%), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent var(--floor), #000 calc(var(--floor) + 2%), transparent 100%);
+}
+.neon-ref { inset: 0; filter: blur(3.5px); opacity: var(--ref); }
+
+.neon-vig {
+  inset: 0; z-index: 6; pointer-events: none; opacity: var(--room);
+  background: radial-gradient(75% 65% at 50% 45%, transparent 40%, rgba(0,0,0,.72) 100%);
+}
+.neon-grain {
+  inset: 0; z-index: 7; pointer-events: none;
+  opacity: calc(.045 * var(--room)); mix-blend-mode: overlay;
+}
+/* the sign lighting its surroundings. Scene-scoped by default — a library has
+   no business flashing the host page. */
+.neon-bloom {
+  inset: 0; z-index: 8; pointer-events: none; opacity: 0; mix-blend-mode: screen;
+  background: radial-gradient(circle at var(--bx) 44%, var(--nc) 0%, transparent var(--br));
+}
+
+</style>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; background:#040405; color:#8e8e93; display:flex; min-height:100vh;
+         overflow:hidden; font:12px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  #hold { flex:1; height:100vh; display:flex; align-items:center; justify-content:center;
+          background:#020203; overflow:hidden; }
+  #stage { width:100%; height:100%; }
+  body.framed #stage { box-shadow:0 24px 80px -20px #000, 0 0 0 1px #121216; border-radius:3px; }
+  body.solo #panel { display:none; }
+
+  #panel { width:272px; flex:none; height:100vh; overflow-y:auto; padding:20px 20px 28px;
+           background:#0b0b0d; border-left:1px solid #191920;
+           scrollbar-width:thin; scrollbar-color:#26262e #0b0b0d; }
+  #panel::-webkit-scrollbar { width:8px } #panel::-webkit-scrollbar-thumb { background:#26262e; border-radius:4px }
+  .ttl { color:#e8e8ec; font-size:13px; font-weight:600; }
+  .sub { color:#5c5c66; margin-bottom:18px; }
+  .sub a { color:#7fd8c4; text-decoration:none; }
+  h2 { margin:20px 0 10px; font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+       color:#55555e; font-weight:600; }
+  .row { margin-bottom:11px; }
+  .row label { display:flex; justify-content:space-between; margin-bottom:4px; color:#8e8e93; }
+  .row output { color:#d8d8dd; font-variant-numeric:tabular-nums; font-size:11px; }
+  input[type=range] { width:100%; accent-color:#7fd8c4; height:14px; margin:0; }
+  input[type=text], select { width:100%; padding:8px 10px; background:#000; color:#eaeaef;
+      border:1px solid #26262e; border-radius:6px; font:inherit; }
+  input[type=text]:focus, select:focus { outline:none; border-color:#7fd8c4; }
+  input[type=color] { width:100%; height:30px; padding:0; background:#000; cursor:pointer;
+      border:1px solid #26262e; border-radius:6px; }
+  .cc { display:flex; gap:9px } .cc > div { flex:1 }
+  .cc small { display:block; color:#5c5c66; margin-bottom:4px; }
+  #swatches { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-bottom:11px; }
+  #swatches i { height:22px; border-radius:5px; cursor:pointer; border:1px solid rgba(255,255,255,.14);
+                box-shadow:0 0 10px -1px currentColor; transition:transform .12s; }
+  #swatches i:hover { transform:translateY(-2px); }
+  button { padding:8px 6px; background:#15151a; color:#a8a8b0; border:1px solid #26262e;
+           border-radius:6px; cursor:pointer; font:inherit; width:100%; transition:.12s; }
+  button:hover { background:#1e1e25; color:#d8d8dd; }
+  #modes, #looks { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  #modes button { text-transform:capitalize } #modes button.on { border-color:#7fd8c4; color:#7fd8c4; background:#12211e }
+  .hint { color:#5c5c66; font-size:11px; margin-top:8px; min-height:28px; }
+  .acts { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:16px; }
+  #replay { grid-column:1/3; border-color:#7fd8c4; color:#7fd8c4; }
+  #fstat { font-size:11px; min-height:15px; margin-top:6px; }
+</style>
+
+<div id="hold"><div id="stage"></div></div>
+<div id="panel"></div>
+
+<script>
+/*! neon-text v1.0.0 — MIT
+ *
+ *  A neon sign that assembles, strikes and burns, built from a particle field.
+ *
+ *  Hybrid by design: real DOM text carries the tube (crisp, selectable,
+ *  accessible), a canvas of particles behind it carries the gas, the assembly
+ *  and the flash. Neither layer alone does the job — dots cannot render a
+ *  continuous saturated tube, and canvas letters are not text.
+ *
+ *  Classic script on purpose, NOT an ES module: `import` is blocked from
+ *  file:// by CORS, and being openable straight from disk is half the point.
+ *
+ *    <link rel="stylesheet" href="src/neon.css">
+ *    <script src="src/neon.js"><\/script>
+ *    <script>Neon.create('#stage', { text: 'OPEN|ALL NIGHT' })<\/script>
+ */
+(function (global) {
+'use strict';
+
+var VERSION = '1.0.0';
+
+/* ── timing, in FRAMES not ms, so a given frame is exactly reproducible ───── */
+var T_OFF = 45, T_STRIKE = 115, T_FLASH = 119, FLASH_LEN = 4, DECAY_LEN = 40;
+var T_ASM = 96, T_IGNITE = 104;
+var SQUASH = .5;                       // floor foreshortening for the reflection
+
+/* Dots draw additively, so total light scales with count — without this the
+   dot count is secretly an exposure control. Normalising decouples them: dots
+   become texture, flash becomes brightness. The exponent is MEASURED (mean
+   canvas luminance sampled at 2k/4.6k/12k/24k), not reasoned: it lands near
+   0.42, because overlapping additive dots clip toward white. */
+var DENS_REF = 4600, DENS_EXP = .42;
+
+/* Perf, measured over real rAF frames (a synchronous draw loop omits paint and
+   misreports this by ~2x). Display capped at 11.2ms: 4.6k->11.1, 10k->11.1
+   (still vsync-locked), 16k->16.5, 20k->20.1. Full rate to ~10k, 60fps to ~16k.
+   Past ~16k, per-dot fillRect is the wrong primitive — use ImageData. */
+var DOTS_SMOOTH = 10000;
+var HEAVY_AT = 6000;                   // above this, cheap noise + half reflections
+
+var RM = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+var MODES = {
+  strike:   'Flicker, false starts, then one hard flash — every letter at once.',
+  cascade:  'Letters fire one by one, left to right, each with its own flash.',
+  random:   'Same, in scrambled order — a sign wiring itself up.',
+  wave:     'All lit, with a pulse of light travelling along the tube.',
+  assemble: 'Particles fly in and build the letterform, then it ignites.',
+  instant:  'Straight on. No theatre.'
+};
+
+var DEFAULTS = {
+  text: 'AFTER HOURS',   // "|" starts a new line
+  mode: 'strike',
+  font: 'Arial Black',
+  glow: '#ff2d95',
+  core: '#ffffff',
+  wall: '#17171b',
+  hue: 0,                // hue spread across letters, degrees
+  coreHeat: .55,
+  size: 130,
+  track: 6,              // letter spacing, as 1/100 em
+  tube: 1,               // 1 = neon tube · 0 = letterform of pure particles
+  dots: 4600,
+  dotSize: 1,
+  gas: 1,
+  hug: .72,              // 0 = room-filling haze · 1 = gas clings to the letters
+  settle: .12,
+  trail: 22,
+  room: 1,
+  reflect: .75,
+  push: .9,              // cursor stir
+  flash: 1,
+  scatter: 210,
+  pulses: 3,
+  stagger: .55,
+  gap: 9                 // frames between letters in per-letter modes
+};
+
+/* complete looks — font, palette, mode, room and physics together */
+var LOOKS = {
+  Diner:  { font:'Monoton', glow:'#ff2d95', core:'#fff3f8', mode:'strike', wall:'#17171b',
+            hue:0, track:8, gas:1, hug:.72, trail:22, flash:1, reflect:.8 },
+  Cyber:  { font:'Audiowide', glow:'#35d6ff', core:'#eafcff', mode:'cascade', wall:'#0d1620',
+            hue:40, track:10, gas:1.2, hug:.85, trail:30, flash:1.1, reflect:.9, gap:7 },
+  Retro:  { font:'Bungee', glow:'#ffae2b', core:'#fff6e2', mode:'random', wall:'#1c1712',
+            hue:20, track:6, gas:.8, hug:.6, trail:16, flash:.9, reflect:.6, gap:11 },
+  Ice:    { font:'Six Caps', glow:'#9fd8ff', core:'#ffffff', mode:'wave', wall:'#0f1418',
+            hue:25, track:14, gas:1.4, hug:.5, trail:34, flash:.7, reflect:.85 },
+  Chapel: { font:'Great Vibes', glow:'#ff7bd5', core:'#fff0fb', mode:'cascade', wall:'#15111a',
+            hue:0, track:2, gas:.7, hug:.9, trail:26, flash:.85, reflect:.7, gap:6 },
+  Swarm:  { font:'Anton', glow:'#12b6ff', core:'#eafcff', mode:'assemble', wall:'#0c1014',
+            hue:15, track:5, gas:1.1, hug:.2, trail:30, flash:1.15, reflect:.7,
+            tube:.38, dots:8500, dotSize:1.4, scatter:340, settle:.16 }
+};
+
+var SYS_FONTS = ['Arial Black','Impact','Georgia','Trebuchet MS','Courier New','Palatino Linotype'];
+
+/* Uppercase-only faces: lowercase codepoints map to capital glyphs, so typing
+   "photography" renders "PHOTOGRAPHY". Nothing here transforms text — it is the
+   font's design and cannot be undone. All we can do is report it. */
+var CAPS_FONTS = ['Bebas Neue','Staatliches','Bungee','Six Caps','Bungee Shade','Bungee Inline'];
+
+/* ── small maths ──────────────────────────────────────────────────────────── */
+function hash1(i){ var x = Math.sin(i * 127.1) * 43758.5453; return x - Math.floor(x); }
+function vnoise(x, y){
+  var xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi,
+      u = xf*xf*(3-2*xf), v = yf*yf*(3-2*yf),
+      h = function(a,b){ var s = Math.sin(a*127.1 + b*311.7) * 43758.5453; return s - Math.floor(s); },
+      a = h(xi,yi), b = h(xi+1,yi), c = h(xi,yi+1), d = h(xi+1,yi+1),
+      t1 = a + (b-a)*u, t2 = c + (d-c)*u;
+  return t1 + (t2-t1)*v;
+}
+function hex2rgb(h){ return [1,3,5].map(function(i){ return parseInt(h.substr(i,2),16); }); }
+function mix(a, b, t){
+  var A = hex2rgb(a), B = hex2rgb(b);
+  return '#' + A.map(function(v,i){
+    return Math.round(v + (B[i]-v)*t).toString(16).padStart(2,'0'); }).join('');
+}
+function shiftHue(hex, deg){
+  if (!deg) return hex;
+  var c = hex2rgb(hex).map(function(v){ return v/255; }),
+      r = c[0], g = c[1], b = c[2],
+      mx = Math.max(r,g,b), mn = Math.min(r,g,b), l = (mx+mn)/2, d = mx-mn, hh = 0, s = 0;
+  if (d){
+    s = l > .5 ? d/(2-mx-mn) : d/(mx+mn);
+    hh = mx === r ? ((g-b)/d + (g<b?6:0)) : mx === g ? (b-r)/d + 2 : (r-g)/d + 4;
+    hh /= 6;
+  }
+  hh = (hh + deg/360) % 1;
+  var q = l < .5 ? l*(1+s) : l+s-l*s, p = 2*l-q,
+      f = function(t){ t = (t+1)%1;
+        return t < 1/6 ? p+(q-p)*6*t : t < .5 ? q : t < 2/3 ? p+(q-p)*(2/3-t)*6 : p; };
+  return '#' + [f(hh+1/3), f(hh), f(hh-1/3)].map(function(v){
+    return Math.round(v*255).toString(16).padStart(2,'0'); }).join('');
+}
+
+/* film grain, generated once and shared — keeps the page asset-free */
+var GRAIN = (function(){
+  var g = document.createElement('canvas'); g.width = g.height = 72;
+  var gx = g.getContext('2d'), im = gx.createImageData(72,72);
+  for (var i = 0; i < im.data.length; i += 4){
+    var v = 120 + Math.random() * 135;
+    im.data[i] = im.data[i+1] = im.data[i+2] = v; im.data[i+3] = 255;
+  }
+  gx.putImageData(im,0,0);
+  return g.toDataURL();
+})();
+
+/* ── fonts ────────────────────────────────────────────────────────────────── */
+/* Render 'a' and 'A' and compare rasters. Covers any family, not just a list. */
+function capsOnly(fam, weight){
+  try {
+    var c = document.createElement('canvas'); c.width = c.height = 110;
+    var x = c.getContext('2d');
+    x.font = weight + ' 72px "' + fam + '"'; x.textBaseline = 'alphabetic';
+    var draw = function(ch){ x.clearRect(0,0,110,110); x.fillStyle = '#fff';
+      x.fillText(ch, 8, 88); return c.toDataURL(); };
+    return draw('a') === draw('A');
+  } catch (e){ return false; }
+}
+
+/* Load a Google font by name. Requests the family with NO weight axis, via
+   <link> rather than fetch: ":wght@700" 404s on every single-weight display
+   face, and that 404 carries no CORS header — two red console errors per load.
+   Most signage faces are 400-only anyway. */
+function loadFont(name){
+  if (SYS_FONTS.indexOf(name) >= 0)
+    return Promise.resolve({ ok:true, weight:700, caps:capsOnly(name,700) });
+  var enc = String(name).trim().replace(/\s+/g, '+'), id = 'neon-gf-' + enc;
+  var ready = document.getElementById(id) ? Promise.resolve() : new Promise(function(res){
+    var l = document.createElement('link');
+    l.rel = 'stylesheet'; l.id = id;
+    l.href = 'https://fonts.googleapis.com/css2?family=' + enc + '&display=block';
+    l.onload = l.onerror = res;
+    document.head.appendChild(l);
+  });
+  return ready
+    /* Gate on the REAL face. If the glyphs are sampled while the webfont is
+       still in flight, the canvas rasterises a fallback while the DOM later
+       swaps to the real one — and the dots sit on letters that no longer
+       exist. This await is not optional. */
+    .then(function(){ return document.fonts.load('400 110px "' + name + '"'); })
+    .catch(function(){})
+    .then(function(){
+      var ok = document.fonts.check('400 110px "' + name + '"');
+      if (!ok){ var el = document.getElementById(id); if (el) el.remove(); }
+      return { ok: ok, weight: 400, caps: ok && capsOnly(name, 400) };
+    });
+}
+
+/* ── the sign ─────────────────────────────────────────────────────────────── */
+function Sign(el, opts){
+  this.el = el;
+  this.o = {};
+  for (var k in DEFAULTS) this.o[k] = DEFAULTS[k];
+  this.fontWeight = 700;
+  this.W = this.H = this.FLOOR = 0;
+  this.CH = [];
+  this.F = 0; this.ARR = 0; this.nInked = 1;
+  this.px = -1e4; this.py = -1e4; this.pxT = -1e4; this.pyT = -1e4; this.pOn = 0;
+  this._land = [];
+  this._raf = 0; this._dead = false;
+  /* initialise derived state HERE, not in set(): set() early-returns when
+     nothing changed, so `new Sign(el)` with no options would leave this
+     undefined and the first flash frame would throw */
+  this.coreRGB = hex2rgb(this.o.core);
+  this._buildDOM();
+  opts = opts || {};
+  for (var key in opts) if (key in DEFAULTS) this.o[key] = opts[key];
+  if (opts.mode && !MODES[opts.mode]) throw new Error('neon: unknown mode "' + opts.mode + '"');
+  this.coreRGB = hex2rgb(this.o.core);
+  var sys = SYS_FONTS.indexOf(this.o.font) >= 0;
+  this.fontWeight = sys ? 700 : 400;
+  this._observe();
+  this.resize();                       // explicit first build, not a side effect
+  if (!sys){                           // requested face isn't loaded yet
+    var self0 = this;
+    loadFont(this.o.font).then(function(r){
+      if (self0._dead) return;
+      self0.fontWeight = r.ok ? r.weight : 700;
+      self0.capsOnly = !!r.caps;
+      self0.build(); self0.replay();
+    });
+  }
+  this._loop();
+}
+
+Sign.prototype._buildDOM = function(){
+  var el = this.el;
+  el.classList.add('neon-scene');
+  var mk = function(cls, tag){ var d = document.createElement(tag || 'div'); d.className = cls; el.appendChild(d); return d; };
+  this.elWall  = mk('neon-wall');
+  this.elFloor = mk('neon-floor');
+  this.canvas  = mk('neon-canvas', 'canvas');
+  this.elPool  = mk('neon-pool');
+  var wrap     = mk('neon-refwrap');
+  this.elRef   = document.createElement('div'); this.elRef.className = 'neon-ref';
+  this.elRef.setAttribute('aria-hidden','true'); wrap.appendChild(this.elRef);
+  this.elOff   = mk('neon-off'); this.elOff.setAttribute('aria-hidden','true');
+  this.elLit   = mk('neon-lit'); this.elLit.setAttribute('role','img');
+  this.elVig   = mk('neon-vig');
+  this.elGrain = mk('neon-grain');
+  this.elGrain.style.backgroundImage = 'url(' + GRAIN + ')';
+  this.elBloom = mk('neon-bloom');
+  /* TRANSPARENT on purpose. An opaque canvas at z-index 2 hides the wall and
+     floor planes underneath it entirely — the "room" then comes from nothing
+     but accumulated trail. */
+  this.ctx = this.canvas.getContext('2d', { alpha:true });
+  this.off = document.createElement('canvas');
+  this.oc  = this.off.getContext('2d', { willReadFrequently:true });
+
+  var self = this;
+  this._onMove = function(e){
+    var r = el.getBoundingClientRect();
+    self.pxT = e.clientX - r.left; self.pyT = e.clientY - r.top; self.pOn = 1;
+  };
+  this._onLeave = function(){ self.pOn = 0; };
+  el.addEventListener('pointermove', this._onMove);
+  el.addEventListener('pointerleave', this._onLeave);
+};
+
+Sign.prototype._observe = function(){
+  var self = this;
+  if (typeof ResizeObserver === 'function'){
+    this._ro = new ResizeObserver(function(){ self.resize(); });
+    this._ro.observe(this.el);
+  } else {
+    this._onResize = function(){ self.resize(); };
+    global.addEventListener('resize', this._onResize);
+  }
+};
+
+/* Which options require which work. Getting this wrong is silent: a slider
+   moves, the value stores, and nothing on screen changes. */
+var BUILD_KEYS    = ['text','font','size','track','dots','hue','glow','core'];
+var SCHEDULE_KEYS = ['mode','gap'];
+var ROOM_KEYS     = ['room','wall','reflect'];
+
+/** Update options. Rebuilds only what the change actually requires.
+ *  A font that isn't loaded yet is fetched and the sign rebuilds on arrival;
+ *  await Neon.loadFont(name) first if you need it to be synchronous. */
+Sign.prototype.set = function(opts){
+  opts = opts || {};
+  if (opts.mode && !MODES[opts.mode]) throw new Error('neon: unknown mode "' + opts.mode + '"');
+  var changed = [], self = this;
+  for (var k in opts) if (k in DEFAULTS){
+    if (this.o[k] !== opts[k]) changed.push(k);
+    this.o[k] = opts[k];
+  }
+  if (!changed.length) return this;
+  this.coreRGB = hex2rgb(this.o.core);
+
+  if (changed.indexOf('font') >= 0){
+    var sys = SYS_FONTS.indexOf(this.o.font) >= 0,
+        /* if the face is already available, apply it synchronously — kicking
+           off another async load would rebuild + replay LATER and stomp on
+           whatever the caller does next (it silently reset the frame counter
+           mid-capture) */
+        ready = sys || (document.fonts && document.fonts.check('400 110px "' + this.o.font + '"'));
+    this.fontWeight = sys ? 700 : 400;
+    if (!ready) loadFont(this.o.font).then(function(r){
+      if (self._dead) return;
+      self.fontWeight = r.ok ? r.weight : 700;
+      self.capsOnly = !!r.caps;
+      self.build(); self.replay();
+    });
+  }
+  var hit = function(list){ return list.some(function(k2){ return changed.indexOf(k2) >= 0; }); };
+  if (hit(BUILD_KEYS))    this.build();
+  else if (hit(SCHEDULE_KEYS)) this._schedule();
+  if (hit(ROOM_KEYS))     this._applyRoom();
+  if (changed.indexOf('mode') >= 0 || changed.indexOf('text') >= 0) this.replay();
+  return this;
+};
+
+/** Apply a named look from Neon.LOOKS. Resets unlisted values to defaults —
+ *  a look lists only what it changes, so merging its diff onto live options
+ *  lets the previous look bleed through. */
+Sign.prototype.look = function(name){
+  var k = LOOKS[name];
+  if (!k) throw new Error('neon: unknown look "' + name + '"');
+  var next = {};
+  for (var d in DEFAULTS) next[d] = DEFAULTS[d];
+  for (var p in k) next[p] = k[p];
+  next.text = this.o.text;                       // the text is the user's, not the look's
+  return this.set(next);
+};
+
+Sign.prototype.resize = function(){
+  var r = this.el.getBoundingClientRect();
+  this.rect = r;
+  var w = Math.max(160, Math.round(r.width)), h = Math.max(120, Math.round(r.height));
+  if (w !== this.W || h !== this.H || !this.CH.length){
+    this.W = this.canvas.width = this.off.width = w;
+    this.H = this.canvas.height = this.off.height = h;
+    this.build();
+    this.ctx.clearRect(0,0,w,h);
+  }
+  return this;
+};
+
+Sign.prototype.build = function(){
+  if (!this.W) return this;
+  var o = this.o, oc = this.oc, W = this.W, H = this.H, self = this;
+  var lines = String(o.text).split('|').map(function(s){ return s.length ? s : ' '; });
+  var HAS_LS = 'letterSpacing' in oc;
+  var size = o.size;
+  /* tracking as a FRACTION OF SIZE — with fixed px, total width isn't linear in
+     size, the shrink-to-fit undershoots and long strings spill off-stage */
+  var track = function(){ return HAS_LS ? o.track / 100 * size : 0; };
+  var fontStr = function(){ return self.fontWeight + ' ' + size + 'px "' + o.font + '", sans-serif'; };
+  oc.textAlign = 'left'; oc.textBaseline = 'alphabetic';
+  var layout = function(){
+    oc.font = fontStr();
+    return lines.map(function(ln){
+      var adv = [], acc = 0;
+      Array.from(ln).forEach(function(c){ adv.push(acc); acc += oc.measureText(c).width + track(); });
+      return { adv: adv, total: acc - track() };
+    });
+  };
+  var L = layout(), maxW = W * .84, maxH = H * .58;
+  for (var i = 0; i < 4; i++){                    // fit BOTH axes
+    var mm = oc.measureText('Hg'),
+        lhh = (mm.fontBoundingBoxAscent + mm.fontBoundingBoxDescent) * 1.06,
+        widest = Math.max.apply(null, L.map(function(l){ return l.total; }).concat([1])),
+        s = Math.min(maxW / widest, maxH / (lhh * lines.length), 1.0001);
+    if (s > .999) break;
+    size = Math.max(12, size * s); L = layout();
+  }
+  size = Math.floor(size); L = layout();
+
+  var m = oc.measureText('Hg'),
+      asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent,
+      lh = Math.round((asc + desc) * 1.06),
+      top = Math.round(H * .43 - lh * lines.length / 2);
+
+  /* Draw each char at its computed x, then sample that line's band. Canvas and
+     DOM read from the SAME x list, so the two rendering engines cannot drift
+     apart — never render them independently and nudge until they match. */
+  oc.clearRect(0,0,W,H); oc.fillStyle = '#fff'; oc.font = fontStr();
+  var slots = [];
+  lines.forEach(function(ln, li){
+    var chars = Array.from(ln), LL = L[li], x0 = (W - LL.total) / 2,
+        baseY = top + asc + lh * li, first = slots.length,
+        lut = new Int16Array(W).fill(-1);
+    chars.forEach(function(c, i){
+      var x = x0 + LL.adv[i], w = oc.measureText(c).width;
+      oc.fillText(c, x, baseY);
+      slots.push({ c:c, x:x, w:w, baseY:baseY, cand:[] });
+      for (var p = Math.max(0, Math.floor(x)); p < Math.min(W, Math.ceil(x + w + track())); p++)
+        lut[p] = first + i;
+    });
+    var y1 = Math.max(0, baseY - asc - 2), y2 = Math.min(H, baseY + desc + 2);
+    if (y2 <= y1) return;
+    var px = oc.getImageData(0, y1, W, y2 - y1).data;
+    /* finer sampling at high density: at stride 2 there aren't enough distinct
+       target sites for a particle-only letterform, and the extra dots pile onto
+       duplicates instead of filling the glyph */
+    var STR = o.dots > HEAVY_AT ? 1 : 2;
+    for (var y = 0; y < y2 - y1; y += STR)
+      for (var x2 = 0; x2 < W; x2 += STR)
+        if (px[(y*W + x2)*4 + 3] > 128){ var sl = lut[x2]; if (sl >= 0) slots[sl].cand.push(x2, y1 + y); }
+  });
+
+  /* Ground line and vertical centring come from measured INK, never from font
+     metrics. Metrics describe the em box: "PIC" and "photography" report
+     identical ascent/descent and need completely different treatment. Anchor
+     the floor to the baseline and the first lowercase descender sinks through
+     it and collides with its own reflection. */
+  var inkTop = 1e9, inkBot = -1e9;
+  slots.forEach(function(s2){ for (var i2 = 1; i2 < s2.cand.length; i2 += 2){
+    var y = s2.cand[i2]; if (y < inkTop) inkTop = y; if (y > inkBot) inkBot = y; } });
+  if (inkBot > inkTop){
+    var dy = Math.round(H * .42 - (inkTop + inkBot) / 2);   // centre the ink, not the em box
+    if (dy) slots.forEach(function(s2){
+      s2.baseY += dy;
+      for (var i2 = 1; i2 < s2.cand.length; i2 += 2) s2.cand[i2] += dy;
+    });
+    inkBot += dy;
+  } else inkBot = top + asc;
+  /* pad stays small: any lower and the reflection detaches by TWICE the gap */
+  this.FLOOR = Math.round(inkBot + (asc + desc) * .09);
+  this.el.style.setProperty('--floor', (this.FLOOR / H * 100).toFixed(2) + '%');
+  this.elRef.style.transformOrigin = '50% ' + this.FLOOR + 'px';
+  this.elRef.style.transform = 'scaleY(' + (-SQUASH) + ')';
+
+  this.elLit.textContent = ''; this.elOff.textContent = ''; this.elRef.textContent = '';
+  /* per-character absolute spans cost natural text selection, so the whole
+     string is exposed as the accessible name instead */
+  this.elLit.setAttribute('aria-label', lines.join(' '));
+  var total = slots.reduce(function(a, s2){ return a + s2.cand.length/2; }, 0) || 1;
+
+  this.CH = slots.map(function(s2, i2){
+    var hexi = shiftHue(o.glow, o.hue * (slots.length > 1 ? i2/slots.length : 0));
+    var mkSpan = function(parent, lit){
+      var e = document.createElement('span');
+      e.textContent = s2.c;
+      e.style.cssText = 'left:' + s2.x + 'px;top:' + (s2.baseY - asc) +
+                        'px;line-height:' + (asc + desc) + 'px;font:' + fontStr();
+      if (lit){
+        /* a pure-white fill on a heavy face reads as a white slab, not a lit
+           tube — carry some of the gas colour into the glass itself */
+        e.style.color = mix(o.core, hexi, .26);
+        e.style.textShadow = '0 0 3px ' + mix(o.core, hexi, .4) + ', 0 0 9px ' + hexi +
+          ', 0 0 20px ' + hexi + ', 0 0 42px ' + hexi + ', 0 0 86px ' + hexi + ', 0 0 150px ' + hexi;
+      }
+      parent.appendChild(e); return e;
+    };
+    mkSpan(self.elOff, false);
+    var span = mkSpan(self.elLit, true), spanR = mkSpan(self.elRef, true);
+    var n = s2.cand.length / 2 | 0, want = Math.round(o.dots * (n / total)), dots = [];
+    for (var k = 0; k < want && n; k++){
+      /* targets are PRE-ASSIGNED, not nearest-point searched: the text never
+         moves, so a fixed dot->target pairing is O(1) per dot instead of
+         O(polyline), and left-to-right arrival comes free */
+      var j = (k * 2654435761 % n + n) % n,
+          p = hash1(k+3) * 6.28, q = hash1(k+5) * 6.28;
+      dots.push({ tx: s2.cand[j*2] + (hash1(k) - .5) * 1.8,
+                  ty: s2.cand[j*2+1] + (hash1(k+9) - .5) * 1.8,
+                  x:0, y:0, vx:0, vy:0, p:p, q:q,
+                  rj: hash1(q * 71) - .5, hp: hash1(p * 331) > .55 });
+    }
+    return { c:s2.c, i:i2, x:s2.x, w:s2.w, span:span, spanR:spanR, dots:dots,
+             rgb:hex2rgb(hexi), hex:hexi, t0:0 };
+  });
+  this.nInked = Math.max(1, this.CH.filter(function(c){ return c.dots.length; }).length);
+  /* hard clear on rebuild: the trail buffer still holds the PREVIOUS word's
+     particles, and at a slow fade they linger as a ghost of the old text —
+     most visibly in the reflection, which is the dimmest layer */
+  this.ctx.clearRect(0, 0, W, H);
+  this._schedule(); this._scatter(); this._applyRoom();
+  return this;
+};
+
+/* each character's strike frame — the whole "variety of animation" knob */
+Sign.prototype._schedule = function(){
+  var o = this.o;
+  var inked = this.CH.filter(function(c){ return c.dots.length; });
+  var order = inked.map(function(_, k){ return k; });
+  if (o.mode === 'random') order.sort(function(a,b){ return hash1(a*17+3) - hash1(b*17+3); });
+  inked.forEach(function(c, k){
+    if (RM || o.mode === 'instant')  c.t0 = 0;
+    else if (o.mode === 'strike')    c.t0 = T_FLASH;
+    else if (o.mode === 'assemble')  c.t0 = T_IGNITE;      // shape first, light second
+    else                             c.t0 = T_OFF + order.indexOf(k) * o.gap;
+  });
+  this.CH.forEach(function(c){ if (!c.dots.length) c.t0 = 0; });
+};
+
+Sign.prototype._scatter = function(){
+  var o = this.o, W = this.W, H = this.H;
+  this.CH.forEach(function(ch){
+    ch.dots.forEach(function(d){
+      /* reduced motion: dots START on target. "Animation off" is not enough —
+         the first painted frame has to be the finished, legible sign. */
+      if (RM){ d.x = d.tx; d.y = d.ty; d.vx = d.vy = 0; return; }
+      /* hug slides the gas between a room-filling haze (0) and glow clinging
+         to the letterforms only (1) */
+      var ang = hash1(d.p * 977) * 6.28,
+          r = o.scatter * (.35 + .65 * hash1(d.q * 613)) * (1 - .82 * o.hug),
+          ox = W/2 + (d.tx - W/2) * o.hug, oy = H/2 + (d.ty - H/2) * o.hug;
+      d.x = ox + Math.cos(ang) * r * 1.6; d.y = oy + Math.sin(ang) * r * .7;
+      d.vx = d.vy = 0;
+    });
+  });
+};
+
+Sign.prototype._applyRoom = function(){
+  this.el.style.setProperty('--room', this.o.room);
+  this.el.style.setProperty('--wall', this.o.wall);
+  this.elRef.style.opacity = .2 * this.o.reflect;
+};
+
+/** Restart the sequence from frame 0. */
+Sign.prototype.replay = function(){
+  this.F = 0; this.ARR = 0;
+  this._schedule(); this._scatter();
+  if (this.ctx) this.ctx.clearRect(0,0,this.W,this.H);
+  return this;
+};
+
+/* per-character light envelope */
+Sign.prototype._env = function(ch){
+  var o = this.o, F = this.F;
+  if (RM) return { lit:1, k:o.settle, hot:0, boom:.06 };
+  if (o.mode === 'strike' && F < T_FLASH){          // shared false starts
+    if (F < T_OFF || !o.pulses) return { lit:0, k:.012, hot:0, boom:0 };
+    var u = (F - T_OFF) / (T_STRIKE - T_OFF), slot = u * o.pulses,
+        i = Math.floor(slot), fr = slot - i, on = fr < .3,
+        amp = (.16 + .20 * (i / Math.max(1, o.pulses - 1))) * (.65 + .35 * hash1(F));
+    /* each failed strike visibly yanks the gas toward the tube, so the letters
+       are half-formed when the real one lands. Near-zero room bloom here:
+       exactly ONE full flash per sequence keeps this clear of WCAG 2.3.1. */
+    return { lit: on ? amp : .015, k: on ? .11 : .012, hot:0, boom: on ? amp * .10 : 0 };
+  }
+  /* assemble: the particles ARE the letterform while it builds. The tube is
+     held off, and the dots carry their own visibility (`cold`) so the shape
+     reads before any light exists to explain it. */
+  if (o.mode === 'assemble' && F < T_IGNITE){
+    var v = Math.min(1, F / T_ASM);
+    return { lit:.02, k:.006 + .13 * v * v, hot:0, boom:0, tube:0, cold:.20 + .5 * v };
+  }
+  var age = F - ch.t0;
+  if (age < 0)         return { lit:0, k:.012, hot:0, boom:0 };
+  if (age < FLASH_LEN) return { lit:1.7, k:.55, hot:1, boom:1 };
+  if (age < FLASH_LEN + DECAY_LEN){
+    var w = 1 - (age - FLASH_LEN) / DECAY_LEN;
+    return { lit: 1 + .55*w, k: o.settle + .3*w, hot:w, boom:w*w };
+  }
+  /* steady hum + a rare micro-flicker. Keep the dip shallow: a deep drop on one
+     letter at rest reads as a rendering fault, not as a tired tube. */
+  var lit = (.94 + .06 * Math.sin(F * .045)) *
+            (hash1(Math.floor(F/29) + ch.i * 13) > .988 ? .82 : 1), boom = .07;
+  if (o.mode === 'wave'){
+    var pw = Math.pow(Math.max(0, Math.sin(F * .035 - ch.i * .55)), 6);
+    lit += .9 * pw; boom = .05 + .3 * pw;
+  }
+  return { lit:lit, k:o.settle, hot:0, boom:boom };
+};
+
+Sign.prototype.step = function(){
+  var o = this.o, ctx = this.ctx, W = this.W, H = this.H, FLOOR = this.FLOOR;
+  if (!W || !this.CH.length) return;
+  this.F++;
+  var F = this.F;
+  this.px += (this.pxT - this.px) * .16; this.py += (this.pyT - this.py) * .16;
+  var wide = o.mode === 'strike';
+
+  var fade = o.trail;
+  if (wide && F >= T_FLASH && F < T_FLASH + DECAY_LEN)
+    fade = 1.2 + (o.trail - 1.2) * ((F - T_FLASH) / DECAY_LEN);
+  /* while the shape builds, hold the frame longer so each particle draws a
+     STREAK of its flight path — otherwise the assembly reads as a static
+     stipple that happens to change, and nothing ever appears to travel */
+  if (o.mode === 'assemble' && F < T_IGNITE)
+    fade = 3 + (o.trail - 3) * Math.pow(Math.min(1, F / T_ASM), 2);
+
+  /* NO ACCUMULATION. Every frame starts from an empty canvas.
+     Trails used to come from fading the previous frame instead of clearing it,
+     and every such scheme burns in: fading is PROPORTIONAL (alpha *= 1-a), and
+     8-bit rounding means round(1 * 0.914) === 1. Anything that reaches alpha
+     1..5 never decays, so wherever a particle has ever been — every path the
+     cursor ever pushed one along — keeps a permanent faint smear.
+     Trails are drawn explicitly instead, as a motion segment per particle
+     (see the stroke below), which is bounded, controllable, and cannot stain. */
+  ctx.clearRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'lighter';       // additive: dense areas burn to a core
+  /* streak length, from the old fade scale: a low `trail` meant a slow fade and
+     therefore long smears, so it maps to a long segment */
+  var streak = Math.max(.4, Math.min(8, 30 / fade));
+
+  var t = F * .012, PR = 150, refl = o.reflect,
+      DENS = Math.pow(DENS_REF / Math.max(400, o.dots), DENS_EXP),
+      /* vnoise is 8 sin per dot per frame; above the heavy threshold swap to a
+         cheap spatial sinusoid — with that many particles the field's fine
+         structure isn't legible anyway */
+      HEAVY = o.dots > HEAVY_AT,
+      tubeMul = (!RM && o.mode === 'assemble' && F < T_IGNITE) ? 0 : 1,
+      prog = (RM || !wide) ? 9 : (F - T_OFF) / (T_FLASH - T_OFF),
+      land = this._land,
+      bestBoom = 0, bestCh = null, litSum = 0, hot = [], nArr = 0, nTot = 0;
+
+  for (var ci = 0; ci < this.CH.length; ci++){
+    var ch = this.CH[ci];
+    if (!ch.dots.length) continue;
+    var e = this._env(ch),
+        gate = wide ? Math.max(0, Math.min(1, (prog - (ch.x / W) * o.stagger) * 3.2)) : 1,
+        /* hugging must survive the DRIFT too: stiffen the unlit spring and calm
+           the field, or noise walks the tight cloud back out into a haze */
+        k = (e.k + (e.lit < .3 ? .055 * o.hug : 0)) * gate,
+        rgb = ch.rgb,
+        base = e.cold != null ? e.cold * .45 : .10 + .30 * Math.min(1.2, e.lit),
+        /* per-character, not per-dot: this was recomputed thousands of times a
+           frame for a value that only changes with the character's light */
+        amp = o.gas * (e.lit > .3 ? .30 : .55) * (1 - .6 * o.hug) * (RM ? .12 : 1),
+        dsz = o.dotSize;
+    var col = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (base * DENS).toFixed(3) + ')';
+    ctx.fillStyle = col;
+    /* one path + one stroke for the whole character: batching the motion
+       segments is cheaper than a draw call per particle, and lineWidth/colour
+       are per-character constants anyway */
+    ctx.strokeStyle = col; ctx.lineCap = 'round';
+    ctx.lineWidth = (1.3 + 1.1 * Math.min(1, e.lit) * gate) * o.dotSize;
+    ctx.beginPath();
+    land.length = 0;
+
+    for (var di = 0; di < ch.dots.length; di++){
+      var d = ch.dots[di];
+      /* damping .88 -> terminal drift ~ amp/.12 px per frame; keep amp low or
+         the unlit cloud walks off the stage before the strike */
+      var nx = HEAVY ? Math.sin(d.x * .013 + t * 3 + d.p) * .5 : vnoise(d.x/90, d.y/90 + t) - .5,
+          ny = HEAVY ? Math.cos(d.y * .013 + t * 3 + d.q) * .5 : vnoise(d.x/90 + 7, d.y/90 + t + 3) - .5;
+      d.vx += (d.tx - d.x) * k + nx * amp + Math.sin(F*.07 + d.p) * o.gas * .06;
+      d.vy += (d.ty - d.y) * k + ny * amp + Math.sin(F*.061 + d.q) * o.gas * .06;
+      if (this.pOn && o.push && !RM){              // cursor stirs the gas
+        var ax = d.x - this.px, ay = d.y - this.py,
+            gp = Math.exp(-(ax*ax + ay*ay) / (2*PR*PR));
+        d.vx += (ax * .055 - ay * .022) * gp * o.push;
+        d.vy += (ay * .055 + ax * .022) * gp * o.push;
+      }
+      d.vx *= .88; d.vy *= .88; d.x += d.vx; d.y += d.vy;
+
+      var ex = d.x - d.tx, ey = d.y - d.ty, home = ex*ex + ey*ey < 36;
+      nTot++; if (home) nArr++;
+      var s = (1.3 + 1.1 * Math.min(1, e.lit) * gate) * dsz;
+      /* a particle that has FOUND ITS PLACE lights up; one still in flight
+         stays dim, so the letterform brightens as it completes */
+      if (e.cold != null && home) land.push(d.x, d.y, s);
+      else {
+        /* the trail, drawn rather than accumulated: a segment back along this
+           frame's velocity. At rest the segment collapses and the round cap
+           leaves a dot, so still particles look exactly as before. */
+        ctx.moveTo(d.x - d.vx * streak, d.y - d.vy * streak);
+        ctx.lineTo(d.x, d.y);
+      }
+
+      /* at high density reflect only half the dots at double weight — the
+         reflection is diffuse by design, so the halved fillRect count is
+         invisible in the result and very visible in the frame time */
+      if (refl && d.y < FLOOR && (!HEAVY || d.p > 3.14)){
+        /* Light lying on a floor, not a mirror image. Three rules, each fixing
+           a specific way this looked wrong:
+             - FORESHORTENED (SQUASH); a 1:1 mirror just doubles the sign
+             - falloff rides ALPHA, never the dot's height, or you get a second
+               sign at full brightness
+             - falloff and smear scale with HEIGHT ABOVE FLOOR, so the upper
+               line of a multi-line sign fades instead of leaving a ghost */
+        var depth = FLOOR - d.y, my = FLOOR + depth * SQUASH,
+            fall = (1 - (my - FLOOR) / ((H - FLOOR) * .8 + 1)) / (1 + depth / 120);
+        if (fall > 0 && my < H){
+          ctx.globalAlpha = fall * fall * .3 * refl * DENS * (HEAVY ? 2 : 1);
+          ctx.fillRect(d.x + d.rj * (7 + depth * .05), my,
+                       s * (2.6 + depth * .015), s * .85);
+          ctx.globalAlpha = 1;
+        }
+      }
+      if (e.hot && d.hp) hot.push(d.x, d.y, e.hot);
+    }
+
+    ctx.stroke();                                  // all this character's trails, one call
+    if (land.length){                              // the settled particles, lit
+      ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (base * 2.6 * DENS).toFixed(3) + ')';
+      for (var q2 = 0; q2 < land.length; q2 += 3) ctx.fillRect(land[q2], land[q2+1], land[q2+2], land[q2+2]);
+    }
+    /* `tube` dials the DOM glass out entirely — at 0 the letterform is nothing
+       but particles, in any mode */
+    var op = Math.min(1, e.lit) * o.tube * (e.tube != null ? e.tube : 1);
+    ch.span.style.opacity = ch.spanR.style.opacity = op;
+    ch.span.style.filter = e.lit > 1 ? 'brightness(' + (1 + (e.lit - 1) * 1.6) + ')' : 'none';
+    litSum += Math.min(1, e.lit);
+    if (e.boom > bestBoom){ bestBoom = e.boom; bestCh = ch; }
+  }
+
+  /* the dead-glass layer sits ABOVE the canvas, so it occludes every dot inside
+     the glyph — it has to fade with the tube, or "particles build the
+     letterform" only ever shows an outline of the letterform */
+  this.elOff.style.opacity = o.tube * tubeMul;
+
+  /* Flash strength is SYNCED TO ASSEMBLY, not just to the clock: a half-formed
+     sign flashes softly, a fully-built one flashes hardest, so the light reads
+     as caused by the letterform completing rather than timed to coincide with
+     it. The tube term gives the particle flash back what a dialled-down tube
+     isn't contributing. */
+  var arr = nTot ? nArr / nTot : 1;
+  this.ARR += (arr - this.ARR) * .25;              // smoothed, so it can't strobe
+  var EARN = (.5 + .5 * this.ARR) * (1 + (1 - o.tube) * .9);
+
+  if (hot.length){                                 // white-hot core, strike + decay only
+    var cr = this.coreRGB;
+    for (var hi = 0; hi < hot.length; hi += 3){
+      ctx.fillStyle = 'rgba(' + cr[0] + ',' + cr[1] + ',' + cr[2] + ',' +
+        (.55 * o.coreHeat * hot[hi+2] * EARN * DENS).toFixed(3) + ')';
+      ctx.fillRect(hot[hi], hot[hi+1], 2.2 * dsz, 2.2 * dsz);
+    }
+  }
+
+  var st = this.el.style;
+  if (bestCh){
+    var bx = wide ? 50 : ((bestCh.x + bestCh.w/2) / W * 100);
+    st.setProperty('--nc', bestCh.hex);
+    st.setProperty('--br', wide ? '55%' : '17%');
+    st.setProperty('--bx', bx.toFixed(1) + '%');
+    this.elBloom.style.opacity = Math.min(wide ? .85 : .3,
+      bestBoom * o.flash * EARN * (wide ? .8 : .34));
+  } else this.elBloom.style.opacity = 0;
+  st.setProperty('--pool', (.55 * (litSum / this.nInked)).toFixed(3));
+};
+
+Sign.prototype._loop = function(){
+  var self = this;
+  (function frame(){
+    if (self._dead || self._paused) return;
+    self.step();
+    self._raf = requestAnimationFrame(frame);
+  })();
+};
+
+/** Stop the render loop. step() still works, so you can drive frames by hand —
+ *  which is how a given frame is captured reproducibly. */
+Sign.prototype.pause = function(){
+  this._paused = true;
+  if (this._raf) cancelAnimationFrame(this._raf);
+  return this;
+};
+Sign.prototype.resume = function(){
+  if (!this._paused) return this;
+  this._paused = false; this._loop(); return this;
+};
+
+/** Tear down: stops the loop, removes listeners and empties the container. */
+Sign.prototype.destroy = function(){
+  this._dead = true;
+  if (this._raf) cancelAnimationFrame(this._raf);
+  if (this._ro) this._ro.disconnect();
+  if (this._onResize) global.removeEventListener('resize', this._onResize);
+  this.el.removeEventListener('pointermove', this._onMove);
+  this.el.removeEventListener('pointerleave', this._onLeave);
+  this.el.classList.remove('neon-scene');
+  this.el.textContent = '';
+  this.CH = [];
+};
+
+global.Neon = {
+  version: VERSION,
+  create: function(target, opts){
+    var el = typeof target === 'string' ? document.querySelector(target) : target;
+    if (!el) throw new Error('Neon.create: target not found — ' + target);
+    return new Sign(el, opts);
+  },
+  loadFont: loadFont,
+  capsOnly: capsOnly,
+  MODES: MODES,
+  LOOKS: LOOKS,
+  DEFAULTS: DEFAULTS,
+  SYS_FONTS: SYS_FONTS,
+  CAPS_FONTS: CAPS_FONTS,
+  DOTS_SMOOTH: DOTS_SMOOTH,
+  reducedMotion: RM
+};
+
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+/* The panel is a CONSUMER of the public API — it only ever calls
+   sign.set() / .look() / .replay() / .pause(). Nothing here reaches into the
+   engine, which is what proves the extraction is real. */
+
+const SLIDERS = [
+  ['Colour', 'hue',      'Hue spread',          0,   360, 5,   null ],
+  ['Colour', 'coreHeat', 'Core heat',           0,   1,   .05, null ],
+  ['Type',   'size',     'Size',                28,  240, 2,   null ],
+  ['Type',   'track',    'Letter spacing',      0,   20,  1,   null ],
+  ['Type',   'tube',     'Tube opacity',        0,   1,   .05, null ],
+  ['Gas',    'dots',     'Dots',                800, 30000,200,null ],
+  ['Gas',    'dotSize',  'Dot size',            .5,  3,   .1,  null ],
+  ['Gas',    'gas',      'Gas turbulence',      0,   3,   .05, null ],
+  ['Gas',    'hug',      'Hug letters',         0,   1,   .05, null ],
+  ['Gas',    'settle',   'Settle (spring)',     .02, .3,  .01, null ],
+  ['Gas',    'trail',    'Trail fade',          4,   60,  1,   null ],
+  ['Room',   'room',     'Room presence',       0,   1,   .05, null ],
+  ['Room',   'reflect',  'Reflection',          0,   1,   .05, null ],
+  ['Room',   'push',     'Cursor push',         0,   2,   .05, null ],
+  ['Timing', 'flash',    'Flash intensity',     0,   1.4, .05, null ],
+  ['Timing', 'scatter',  'Start scatter',       0,   400, 10,  null ],
+  ['Timing', 'pulses',   'Strike pulses',       0,   3,   1,   ['strike'] ],
+  ['Timing', 'stagger',  'Arrival stagger',     0,   .9,  .05, ['strike'] ],
+  ['Timing', 'gap',      'Letter gap (frames)', 2,   30,  1,   ['cascade','random','wave'] ],
+];
+const G_FONTS = ['Monoton','Bungee','Bungee Shade','Bungee Inline','Righteous','Audiowide','Orbitron',
+  'Michroma','Syncopate','Tourney','Rubik Mono One','Bowlby One','Alfa Slab One','Anton',
+  'Archivo Black','Bebas Neue','Black Ops One','Titan One','Ultra','Staatliches','Six Caps',
+  'Faster One','Wallpoet','Iceberg','Codystar','Monofett','Nabla','Nosifer','Rampart One',
+  'Silkscreen','Press Start 2P','Vast Shadow','Shrikhand','Fugaz One','Carter One','Lobster',
+  'Lobster Two','Pacifico','Great Vibes','Kaushan Script','Sacramento','Satisfy','Yellowtail',
+  'Playball','Poiret One','Permanent Marker','Rock Salt','Chewy','Cinzel'];
+const PRESETS = ['#ff2d95','#35d6ff','#3dff88','#ffae2b','#b06bff','#ff3b3b','#ffffff'];
+const CAPS = new Set(Neon.CAPS_FONTS);
+
+/* ── hash hooks (headless capture) ────────────────────────────────────────────
+   #t=TEXT · #mode=cascade · #font=Monoton · #c=ff2d95 · #k=ffffff
+   #s=hug:1,dots:9000 · #f=N (run N frames, freeze, hide panel)
+   Keys are delimiter-anchored: an unanchored /t=/ also matches the "t=" inside
+   "font=Monoton", which silently renders the font name as the sign's text.
+   NB changing ONLY the hash does not reload the document — bump a query param
+   too, or you screenshot a stale frame and report a bug that isn't there.     */
+const hashGet = k => location.hash.match(new RegExp('(?:^|[#&])' + k + '=([^&#]+)'));
+const opts = {};
+{
+  const t = hashGet('t'), m = hashGet('mode'), c = hashGet('c'), k = hashGet('k'), s = hashGet('s');
+  if (t) opts.text = decodeURIComponent(t[1]);
+  if (m) opts.mode = m[1];
+  if (c) opts.glow = '#' + c[1];
+  if (k) opts.core = '#' + k[1];
+  if (s) s[1].split(',').forEach(kv => { const [a,b] = kv.split(':');
+    if (a in Neon.DEFAULTS) opts[a] = +b; });
+}
+const hashFont = hashGet('font'), hashFreeze = hashGet('f');
+
+const sign = Neon.create('#stage', opts);
+
+/* ── panel ─────────────────────────────────────────────────────────────────── */
+const panel = document.getElementById('panel');
+panel.insertAdjacentHTML('beforeend', `
+  <div class="ttl">neon-text</div>
+  <div class="sub">assembly · strike · flash — <a href="https://github.com/" id="repo">source</a></div>
+  <h2>Looks</h2><div id="looks"></div>
+  <h2>Text</h2>
+  <div class="row"><input type="text" id="txt" maxlength="48" placeholder="type anything…   |  =  new line"></div>
+  <div class="row"><select id="fontsel">
+    <optgroup label="System — works offline">${Neon.SYS_FONTS.map(f=>`<option>${f}</option>`).join('')}</optgroup>
+    <optgroup label="Google — display &amp; script">${G_FONTS.map(f=>
+      `<option value="${f}">${f}${CAPS.has(f)?' — caps only':''}</option>`).join('')}</optgroup>
+  </select></div>
+  <div class="row"><input type="text" id="gfont" placeholder="…or any Google font name ⏎"></div>
+  <div id="fstat"></div>
+  <h2>Animation</h2><div id="modes"></div><div class="hint" id="modehint"></div>
+  <h2>Colour</h2>
+  <div id="swatches">${PRESETS.map(c=>`<i data-c="${c}" style="background:${c};color:${c}"></i>`).join('')}</div>
+  <div class="row cc">
+    <div><small>Glow</small><input type="color" id="glow"></div>
+    <div><small>Core</small><input type="color" id="corec"></div>
+  </div>`);
+
+Object.keys(Neon.LOOKS).forEach(name => {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { sign.look(name); syncPanel(); };
+  document.getElementById('looks').appendChild(b);
+});
+Object.keys(Neon.MODES).forEach(name => {
+  const b = document.createElement('button');
+  b.textContent = name; b.id = 'mode_' + name;
+  b.onclick = () => { sign.set({ mode:name }); syncPanel(); };
+  document.getElementById('modes').appendChild(b);
+});
+
+let group = 'Colour';
+for (const [g, key, label, min, max, step] of SLIDERS){
+  if (g !== group){ group = g; panel.insertAdjacentHTML('beforeend', `<h2>${g}</h2>`); }
+  panel.insertAdjacentHTML('beforeend',
+    `<div class="row" id="row_${key}"><label>${label} <output id="o_${key}"></output></label>
+     <input type="range" id="${key}" min="${min}" max="${max}" step="${step}"></div>`);
+  document.getElementById(key).addEventListener('input', e => {
+    sign.set({ [key]: +e.target.value }); readouts();
+  });
+}
+panel.insertAdjacentHTML('beforeend', `
+  <h2>Frame</h2>
+  <div class="row"><select id="frame">
+    <option value="fill">Fill window</option><option value="16:9">16 : 9 — hero</option>
+    <option value="21:9">21 : 9 — banner</option><option value="1:1">1 : 1 — square</option>
+    <option value="4:5">4 : 5 — social</option>
+  </select></div>
+  <div class="acts"><button id="replay">▶ Replay</button>
+  <button id="share">Copy link</button><button id="solo">Hide panel</button></div>
+  <div class="acts" style="margin-top:6px"><button id="reset">Reset</button></div>
+  <div class="hint" style="margin-top:12px">Space replay · H panel · move the cursor over the sign</div>`);
+
+/* ── wiring ────────────────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+$('txt').addEventListener('input', e => sign.set({ text: e.target.value }));
+$('fontsel').addEventListener('change', e => setFont(e.target.value));
+$('gfont').addEventListener('change', e => e.target.value.trim() && setFont(e.target.value.trim()));
+$('glow').addEventListener('input', e => sign.set({ glow: e.target.value }));
+$('corec').addEventListener('input', e => sign.set({ core: e.target.value }));
+document.querySelectorAll('#swatches i').forEach(s =>
+  s.onclick = () => { sign.set({ glow: s.dataset.c }); $('glow').value = s.dataset.c; });
+$('replay').onclick = () => sign.replay();
+$('reset').onclick = () => { sign.set(Neon.DEFAULTS); syncPanel(); sign.replay(); };
+$('solo').onclick = toggleSolo;
+$('frame').addEventListener('change', e => setFrame(e.target.value));
+$('share').onclick = () => {
+  const d = Neon.DEFAULTS, o = sign.o;
+  const diff = Object.keys(d).filter(k =>
+    typeof d[k] === 'number' && o[k] !== d[k]).map(k => k + ':' + o[k]).join(',');
+  location.hash = `#t=${encodeURIComponent(o.text)}&mode=${o.mode}` +
+    `&font=${encodeURIComponent(o.font)}&c=${o.glow.slice(1)}&k=${o.core.slice(1)}` +
+    (diff ? `&s=${diff}` : '');
+  navigator.clipboard?.writeText(location.href);
+  $('share').textContent = '✓ copied';
+  setTimeout(() => $('share').textContent = 'Copy link', 1400);
+};
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space'){ e.preventDefault(); sign.replay(); }
+  if (e.key.toLowerCase() === 'h') toggleSolo();
+});
+
+async function setFont(name){
+  const stat = $('fstat');
+  stat.style.color = '#5c5c66'; stat.textContent = 'loading ' + name + '…';
+  const r = await Neon.loadFont(name);
+  if (!r.ok){ stat.style.color = '#c86a6a';
+    stat.textContent = `✗ no Google font "${name}" (or offline)`; return; }
+  sign.set({ font: name });
+  if (r.caps){ stat.style.color = '#d8a05a';
+    stat.textContent = `✓ ${name} — caps-only face, lowercase renders as capitals`; }
+  else { stat.style.color = '#7fd8c4'; stat.textContent = '✓ ' + name; }
+  $('fontsel').value = name;
+}
+
+let FRAME = 'fill';
+function setFrame(name){
+  FRAME = name;
+  const hold = $('hold'), stage = $('stage');
+  document.body.classList.toggle('framed', name !== 'fill');
+  if (name === 'fill'){ stage.style.width = stage.style.height = '100%'; }
+  else {
+    const [aw, ah] = name.split(':').map(Number), pad = 34,
+          s = Math.min((hold.clientWidth - pad*2) / aw, (hold.clientHeight - pad*2) / ah);
+    stage.style.width = Math.round(aw * s) + 'px';
+    stage.style.height = Math.round(ah * s) + 'px';
+  }
+  sign.resize();
+}
+function toggleSolo(){
+  document.body.classList.toggle('solo');
+  setTimeout(() => setFrame(FRAME), 30);          // panel width changed → re-fit
+}
+addEventListener('resize', () => { clearTimeout(window._rt); window._rt = setTimeout(() => setFrame(FRAME), 140); });
+
+function readouts(){
+  for (const [, key] of SLIDERS){
+    const o = $('o_' + key); if (!o) continue;
+    o.textContent = sign.o[key];
+    if (key === 'dots'){                          // surface the perf ceiling
+      const heavy = sign.o.dots > Neon.DOTS_SMOOTH;
+      o.style.color = heavy ? '#d8a05a' : '#d8d8dd';
+      o.textContent = sign.o.dots + (heavy ? ' ⚠' : '');
+      o.title = heavy ? `above ~${Neon.DOTS_SMOOTH} dots this drops below 60fps` : '';
+    }
+  }
+}
+function syncPanel(){
+  const o = sign.o;
+  for (const [, key, , , , , modes] of SLIDERS){
+    const el = $(key); if (!el) continue;
+    el.value = o[key];
+    const off = modes && !modes.includes(o.mode);
+    el.disabled = off; $('row_' + key).style.opacity = off ? .32 : 1;
+  }
+  $('txt').value = o.text; $('glow').value = o.glow; $('corec').value = o.core;
+  $('fontsel').value = o.font;
+  document.querySelectorAll('#modes button').forEach(b =>
+    b.classList.toggle('on', b.id === 'mode_' + o.mode));
+  $('modehint').textContent = Neon.MODES[o.mode];
+  readouts();
+}
+
+/* ── boot ──────────────────────────────────────────────────────────────────── */
+(async function(){
+  if (hashFont) await setFont(decodeURIComponent(hashFont[1]));
+  syncPanel();
+  if (hashFreeze && /^\d+$/.test(hashFreeze[1])){
+    /* Hiding the panel RESIZES the stage, and the engine's ResizeObserver
+       fires asynchronously — after the frame loop below. It would rebuild the
+       sign and wipe the frozen frame. So: hide first, let layout and the
+       observer settle, and only then drive the frames. */
+    $('panel').style.display = 'none';
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    sign.resize();
+    sign.pause(); sign.replay();
+    const n = +hashFreeze[1];
+    for (let i = 0; i < n; i++) sign.step();     // exact frame, reproducible
+  }
+})();
+</script>

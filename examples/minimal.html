@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>neon-text — minimal</title>
+<link rel="stylesheet" href="../src/neon.css">
+<style>
+  body { margin:0; background:#050506; }
+  #stage { width:100vw; height:100vh; }
+</style>
+
+<div id="stage"></div>
+
+<script src="../src/neon.js"></script>
+<script>
+  // That's the whole integration. A container with a size, and one call.
+  Neon.create('#stage', { text: 'AFTER HOURS' });
+</script>

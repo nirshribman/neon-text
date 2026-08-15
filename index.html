@@ -1,0 +1,280 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>neon-text — playground</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="A neon sign that assembles, strikes and burns, built from a particle field.">
+<link rel="stylesheet" href="src/neon.css">
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; background:#040405; color:#8e8e93; display:flex; min-height:100vh;
+         overflow:hidden; font:12px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  #hold { flex:1; height:100vh; display:flex; align-items:center; justify-content:center;
+          background:#020203; overflow:hidden; }
+  #stage { width:100%; height:100%; }
+  body.framed #stage { box-shadow:0 24px 80px -20px #000, 0 0 0 1px #121216; border-radius:3px; }
+  body.solo #panel { display:none; }
+
+  #panel { width:272px; flex:none; height:100vh; overflow-y:auto; padding:20px 20px 28px;
+           background:#0b0b0d; border-left:1px solid #191920;
+           scrollbar-width:thin; scrollbar-color:#26262e #0b0b0d; }
+  #panel::-webkit-scrollbar { width:8px } #panel::-webkit-scrollbar-thumb { background:#26262e; border-radius:4px }
+  .ttl { color:#e8e8ec; font-size:13px; font-weight:600; }
+  .sub { color:#5c5c66; margin-bottom:18px; }
+  .sub a { color:#7fd8c4; text-decoration:none; }
+  h2 { margin:20px 0 10px; font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+       color:#55555e; font-weight:600; }
+  .row { margin-bottom:11px; }
+  .row label { display:flex; justify-content:space-between; margin-bottom:4px; color:#8e8e93; }
+  .row output { color:#d8d8dd; font-variant-numeric:tabular-nums; font-size:11px; }
+  input[type=range] { width:100%; accent-color:#7fd8c4; height:14px; margin:0; }
+  input[type=text], select { width:100%; padding:8px 10px; background:#000; color:#eaeaef;
+      border:1px solid #26262e; border-radius:6px; font:inherit; }
+  input[type=text]:focus, select:focus { outline:none; border-color:#7fd8c4; }
+  input[type=color] { width:100%; height:30px; padding:0; background:#000; cursor:pointer;
+      border:1px solid #26262e; border-radius:6px; }
+  .cc { display:flex; gap:9px } .cc > div { flex:1 }
+  .cc small { display:block; color:#5c5c66; margin-bottom:4px; }
+  #swatches { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-bottom:11px; }
+  #swatches i { height:22px; border-radius:5px; cursor:pointer; border:1px solid rgba(255,255,255,.14);
+                box-shadow:0 0 10px -1px currentColor; transition:transform .12s; }
+  #swatches i:hover { transform:translateY(-2px); }
+  button { padding:8px 6px; background:#15151a; color:#a8a8b0; border:1px solid #26262e;
+           border-radius:6px; cursor:pointer; font:inherit; width:100%; transition:.12s; }
+  button:hover { background:#1e1e25; color:#d8d8dd; }
+  #modes, #looks { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  #modes button { text-transform:capitalize } #modes button.on { border-color:#7fd8c4; color:#7fd8c4; background:#12211e }
+  .hint { color:#5c5c66; font-size:11px; margin-top:8px; min-height:28px; }
+  .acts { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:16px; }
+  #replay { grid-column:1/3; border-color:#7fd8c4; color:#7fd8c4; }
+  #fstat { font-size:11px; min-height:15px; margin-top:6px; }
+</style>
+
+<div id="hold"><div id="stage"></div></div>
+<div id="panel"></div>
+
+<script src="src/neon.js"></script>
+<script>
+/* The panel is a CONSUMER of the public API — it only ever calls
+   sign.set() / .look() / .replay() / .pause(). Nothing here reaches into the
+   engine, which is what proves the extraction is real. */
+
+const SLIDERS = [
+  ['Colour', 'hue',      'Hue spread',          0,   360, 5,   null ],
+  ['Colour', 'coreHeat', 'Core heat',           0,   1,   .05, null ],
+  ['Type',   'size',     'Size',                28,  240, 2,   null ],
+  ['Type',   'track',    'Letter spacing',      0,   20,  1,   null ],
+  ['Type',   'tube',     'Tube opacity',        0,   1,   .05, null ],
+  ['Gas',    'dots',     'Dots',                800, 30000,200,null ],
+  ['Gas',    'dotSize',  'Dot size',            .5,  3,   .1,  null ],
+  ['Gas',    'gas',      'Gas turbulence',      0,   3,   .05, null ],
+  ['Gas',    'hug',      'Hug letters',         0,   1,   .05, null ],
+  ['Gas',    'settle',   'Settle (spring)',     .02, .3,  .01, null ],
+  ['Gas',    'trail',    'Trail fade',          4,   60,  1,   null ],
+  ['Room',   'room',     'Room presence',       0,   1,   .05, null ],
+  ['Room',   'reflect',  'Reflection',          0,   1,   .05, null ],
+  ['Room',   'push',     'Cursor push',         0,   2,   .05, null ],
+  ['Timing', 'flash',    'Flash intensity',     0,   1.4, .05, null ],
+  ['Timing', 'scatter',  'Start scatter',       0,   400, 10,  null ],
+  ['Timing', 'pulses',   'Strike pulses',       0,   3,   1,   ['strike'] ],
+  ['Timing', 'stagger',  'Arrival stagger',     0,   .9,  .05, ['strike'] ],
+  ['Timing', 'gap',      'Letter gap (frames)', 2,   30,  1,   ['cascade','random','wave'] ],
+];
+const G_FONTS = ['Monoton','Bungee','Bungee Shade','Bungee Inline','Righteous','Audiowide','Orbitron',
+  'Michroma','Syncopate','Tourney','Rubik Mono One','Bowlby One','Alfa Slab One','Anton',
+  'Archivo Black','Bebas Neue','Black Ops One','Titan One','Ultra','Staatliches','Six Caps',
+  'Faster One','Wallpoet','Iceberg','Codystar','Monofett','Nabla','Nosifer','Rampart One',
+  'Silkscreen','Press Start 2P','Vast Shadow','Shrikhand','Fugaz One','Carter One','Lobster',
+  'Lobster Two','Pacifico','Great Vibes','Kaushan Script','Sacramento','Satisfy','Yellowtail',
+  'Playball','Poiret One','Permanent Marker','Rock Salt','Chewy','Cinzel'];
+const PRESETS = ['#ff2d95','#35d6ff','#3dff88','#ffae2b','#b06bff','#ff3b3b','#ffffff'];
+const CAPS = new Set(Neon.CAPS_FONTS);
+
+/* ── hash hooks (headless capture) ────────────────────────────────────────────
+   #t=TEXT · #mode=cascade · #font=Monoton · #c=ff2d95 · #k=ffffff
+   #s=hug:1,dots:9000 · #f=N (run N frames, freeze, hide panel)
+   Keys are delimiter-anchored: an unanchored /t=/ also matches the "t=" inside
+   "font=Monoton", which silently renders the font name as the sign's text.
+   NB changing ONLY the hash does not reload the document — bump a query param
+   too, or you screenshot a stale frame and report a bug that isn't there.     */
+const hashGet = k => location.hash.match(new RegExp('(?:^|[#&])' + k + '=([^&#]+)'));
+const opts = {};
+{
+  const t = hashGet('t'), m = hashGet('mode'), c = hashGet('c'), k = hashGet('k'), s = hashGet('s');
+  if (t) opts.text = decodeURIComponent(t[1]);
+  if (m) opts.mode = m[1];
+  if (c) opts.glow = '#' + c[1];
+  if (k) opts.core = '#' + k[1];
+  if (s) s[1].split(',').forEach(kv => { const [a,b] = kv.split(':');
+    if (a in Neon.DEFAULTS) opts[a] = +b; });
+}
+const hashFont = hashGet('font'), hashFreeze = hashGet('f');
+
+const sign = Neon.create('#stage', opts);
+
+/* ── panel ─────────────────────────────────────────────────────────────────── */
+const panel = document.getElementById('panel');
+panel.insertAdjacentHTML('beforeend', `
+  <div class="ttl">neon-text</div>
+  <div class="sub">assembly · strike · flash — <a href="https://github.com/" id="repo">source</a></div>
+  <h2>Looks</h2><div id="looks"></div>
+  <h2>Text</h2>
+  <div class="row"><input type="text" id="txt" maxlength="48" placeholder="type anything…   |  =  new line"></div>
+  <div class="row"><select id="fontsel">
+    <optgroup label="System — works offline">${Neon.SYS_FONTS.map(f=>`<option>${f}</option>`).join('')}</optgroup>
+    <optgroup label="Google — display &amp; script">${G_FONTS.map(f=>
+      `<option value="${f}">${f}${CAPS.has(f)?' — caps only':''}</option>`).join('')}</optgroup>
+  </select></div>
+  <div class="row"><input type="text" id="gfont" placeholder="…or any Google font name ⏎"></div>
+  <div id="fstat"></div>
+  <h2>Animation</h2><div id="modes"></div><div class="hint" id="modehint"></div>
+  <h2>Colour</h2>
+  <div id="swatches">${PRESETS.map(c=>`<i data-c="${c}" style="background:${c};color:${c}"></i>`).join('')}</div>
+  <div class="row cc">
+    <div><small>Glow</small><input type="color" id="glow"></div>
+    <div><small>Core</small><input type="color" id="corec"></div>
+  </div>`);
+
+Object.keys(Neon.LOOKS).forEach(name => {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { sign.look(name); syncPanel(); };
+  document.getElementById('looks').appendChild(b);
+});
+Object.keys(Neon.MODES).forEach(name => {
+  const b = document.createElement('button');
+  b.textContent = name; b.id = 'mode_' + name;
+  b.onclick = () => { sign.set({ mode:name }); syncPanel(); };
+  document.getElementById('modes').appendChild(b);
+});
+
+let group = 'Colour';
+for (const [g, key, label, min, max, step] of SLIDERS){
+  if (g !== group){ group = g; panel.insertAdjacentHTML('beforeend', `<h2>${g}</h2>`); }
+  panel.insertAdjacentHTML('beforeend',
+    `<div class="row" id="row_${key}"><label>${label} <output id="o_${key}"></output></label>
+     <input type="range" id="${key}" min="${min}" max="${max}" step="${step}"></div>`);
+  document.getElementById(key).addEventListener('input', e => {
+    sign.set({ [key]: +e.target.value }); readouts();
+  });
+}
+panel.insertAdjacentHTML('beforeend', `
+  <h2>Frame</h2>
+  <div class="row"><select id="frame">
+    <option value="fill">Fill window</option><option value="16:9">16 : 9 — hero</option>
+    <option value="21:9">21 : 9 — banner</option><option value="1:1">1 : 1 — square</option>
+    <option value="4:5">4 : 5 — social</option>
+  </select></div>
+  <div class="acts"><button id="replay">▶ Replay</button>
+  <button id="share">Copy link</button><button id="solo">Hide panel</button></div>
+  <div class="acts" style="margin-top:6px"><button id="reset">Reset</button></div>
+  <div class="hint" style="margin-top:12px">Space replay · H panel · move the cursor over the sign</div>`);
+
+/* ── wiring ────────────────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+$('txt').addEventListener('input', e => sign.set({ text: e.target.value }));
+$('fontsel').addEventListener('change', e => setFont(e.target.value));
+$('gfont').addEventListener('change', e => e.target.value.trim() && setFont(e.target.value.trim()));
+$('glow').addEventListener('input', e => sign.set({ glow: e.target.value }));
+$('corec').addEventListener('input', e => sign.set({ core: e.target.value }));
+document.querySelectorAll('#swatches i').forEach(s =>
+  s.onclick = () => { sign.set({ glow: s.dataset.c }); $('glow').value = s.dataset.c; });
+$('replay').onclick = () => sign.replay();
+$('reset').onclick = () => { sign.set(Neon.DEFAULTS); syncPanel(); sign.replay(); };
+$('solo').onclick = toggleSolo;
+$('frame').addEventListener('change', e => setFrame(e.target.value));
+$('share').onclick = () => {
+  const d = Neon.DEFAULTS, o = sign.o;
+  const diff = Object.keys(d).filter(k =>
+    typeof d[k] === 'number' && o[k] !== d[k]).map(k => k + ':' + o[k]).join(',');
+  location.hash = `#t=${encodeURIComponent(o.text)}&mode=${o.mode}` +
+    `&font=${encodeURIComponent(o.font)}&c=${o.glow.slice(1)}&k=${o.core.slice(1)}` +
+    (diff ? `&s=${diff}` : '');
+  navigator.clipboard?.writeText(location.href);
+  $('share').textContent = '✓ copied';
+  setTimeout(() => $('share').textContent = 'Copy link', 1400);
+};
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space'){ e.preventDefault(); sign.replay(); }
+  if (e.key.toLowerCase() === 'h') toggleSolo();
+});
+
+async function setFont(name){
+  const stat = $('fstat');
+  stat.style.color = '#5c5c66'; stat.textContent = 'loading ' + name + '…';
+  const r = await Neon.loadFont(name);
+  if (!r.ok){ stat.style.color = '#c86a6a';
+    stat.textContent = `✗ no Google font "${name}" (or offline)`; return; }
+  sign.set({ font: name });
+  if (r.caps){ stat.style.color = '#d8a05a';
+    stat.textContent = `✓ ${name} — caps-only face, lowercase renders as capitals`; }
+  else { stat.style.color = '#7fd8c4'; stat.textContent = '✓ ' + name; }
+  $('fontsel').value = name;
+}
+
+let FRAME = 'fill';
+function setFrame(name){
+  FRAME = name;
+  const hold = $('hold'), stage = $('stage');
+  document.body.classList.toggle('framed', name !== 'fill');
+  if (name === 'fill'){ stage.style.width = stage.style.height = '100%'; }
+  else {
+    const [aw, ah] = name.split(':').map(Number), pad = 34,
+          s = Math.min((hold.clientWidth - pad*2) / aw, (hold.clientHeight - pad*2) / ah);
+    stage.style.width = Math.round(aw * s) + 'px';
+    stage.style.height = Math.round(ah * s) + 'px';
+  }
+  sign.resize();
+}
+function toggleSolo(){
+  document.body.classList.toggle('solo');
+  setTimeout(() => setFrame(FRAME), 30);          // panel width changed → re-fit
+}
+addEventListener('resize', () => { clearTimeout(window._rt); window._rt = setTimeout(() => setFrame(FRAME), 140); });
+
+function readouts(){
+  for (const [, key] of SLIDERS){
+    const o = $('o_' + key); if (!o) continue;
+    o.textContent = sign.o[key];
+    if (key === 'dots'){                          // surface the perf ceiling
+      const heavy = sign.o.dots > Neon.DOTS_SMOOTH;
+      o.style.color = heavy ? '#d8a05a' : '#d8d8dd';
+      o.textContent = sign.o.dots + (heavy ? ' ⚠' : '');
+      o.title = heavy ? `above ~${Neon.DOTS_SMOOTH} dots this drops below 60fps` : '';
+    }
+  }
+}
+function syncPanel(){
+  const o = sign.o;
+  for (const [, key, , , , , modes] of SLIDERS){
+    const el = $(key); if (!el) continue;
+    el.value = o[key];
+    const off = modes && !modes.includes(o.mode);
+    el.disabled = off; $('row_' + key).style.opacity = off ? .32 : 1;
+  }
+  $('txt').value = o.text; $('glow').value = o.glow; $('corec').value = o.core;
+  $('fontsel').value = o.font;
+  document.querySelectorAll('#modes button').forEach(b =>
+    b.classList.toggle('on', b.id === 'mode_' + o.mode));
+  $('modehint').textContent = Neon.MODES[o.mode];
+  readouts();
+}
+
+/* ── boot ──────────────────────────────────────────────────────────────────── */
+(async function(){
+  if (hashFont) await setFont(decodeURIComponent(hashFont[1]));
+  syncPanel();
+  if (hashFreeze && /^\d+$/.test(hashFreeze[1])){
+    /* Hiding the panel RESIZES the stage, and the engine's ResizeObserver
+       fires asynchronously — after the frame loop below. It would rebuild the
+       sign and wipe the frozen frame. So: hide first, let layout and the
+       observer settle, and only then drive the frames. */
+    $('panel').style.display = 'none';
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    sign.resize();
+    sign.pause(); sign.replay();
+    const n = +hashFreeze[1];
+    for (let i = 0; i < n; i++) sign.step();     // exact frame, reproducible
+  }
+})();
+</script>

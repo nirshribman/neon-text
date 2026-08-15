@@ -1,6 +1,6 @@
 /* Cuts a frozen single-file build into versions/.
  *
- * Only needed to publish a release — the repo runs fine without ever building.
+ * Only needed to publish a release - the repo runs fine without ever building.
  * Frozen builds never change, so a link to one keeps working regardless of
  * what happens to src/.
  *
@@ -22,7 +22,7 @@ const js  = readFileSync('src/neon.js', 'utf8').replace(/<\/script>/gi, '<\\/scr
  * tags. neon.js's own header comment documents usage and contains both tag
  * strings verbatim, so any output scan false-positives on the inlined source. */
 function sub(src, find, replace, label){
-  if (!src.includes(find)) { console.error(`inline failed — not found: ${label}`); process.exit(1); }
+  if (!src.includes(find)) { console.error(`inline failed - not found: ${label}`); process.exit(1); }
   return src.replace(find, () => replace);        // fn form: no $& expansion
 }
 
@@ -31,9 +31,9 @@ html = sub(html, '<link rel="stylesheet" href="src/neon.css">',
                  `<style>\n${css}\n</style>`, 'css link');
 html = sub(html, '<script src="src/neon.js"></script>',
                  `<script>\n${js}\n</script>`, 'js script');
-html = sub(html, '<title>neon-text — playground</title>',
-                 `<title>neon-text v${v}</title>\n<!-- frozen build v${v} — do not edit -->`, 'title');
+html = sub(html, '<title>neon-text - playground</title>',
+                 `<title>neon-text v${v}</title>\n<!-- frozen build v${v} - do not edit -->`, 'title');
 
 mkdirSync('versions', { recursive: true });
 writeFileSync(`versions/v${v}.html`, html);
-console.log(`versions/v${v}.html — ${(html.length / 1024).toFixed(1)} KB, self-contained`);
+console.log(`versions/v${v}.html - ${(html.length / 1024).toFixed(1)} KB, self-contained`);

@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>neon-text — playground</title>
+<title>neon-text - playground</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="A neon sign that assembles, strikes and burns, built from a particle field.">
 <!-- inline so the page stays asset-free and the console stays silent; a missing
@@ -57,7 +57,7 @@
 
 <script src="src/neon.js"></script>
 <script>
-/* The panel is a CONSUMER of the public API — it only ever calls
+/* The panel is a CONSUMER of the public API - it only ever calls
    sign.set() / .look() / .replay() / .pause(). Nothing here reaches into the
    engine, which is what proves the extraction is real. */
 
@@ -97,7 +97,7 @@ const CAPS = new Set(Neon.CAPS_FONTS);
    #s=hug:1,dots:9000 · #f=N (run N frames, freeze, hide panel)
    Keys are delimiter-anchored: an unanchored /t=/ also matches the "t=" inside
    "font=Monoton", which silently renders the font name as the sign's text.
-   NB changing ONLY the hash does not reload the document — bump a query param
+   NB changing ONLY the hash does not reload the document - bump a query param
    too, or you screenshot a stale frame and report a bug that isn't there.     */
 const hashGet = k => location.hash.match(new RegExp('(?:^|[#&])' + k + '=([^&#]+)'));
 const opts = {};
@@ -118,15 +118,15 @@ const sign = Neon.create('#stage', opts);
 const panel = document.getElementById('panel');
 panel.insertAdjacentHTML('beforeend', `
   <div class="ttl">neon-text</div>
-  <div class="sub">assembly · strike · flash —
+  <div class="sub">assembly · strike · flash -
     <a href="https://github.com/nirshribman-byte/neon-text" id="repo" target="_blank" rel="noopener">source</a></div>
   <h2>Looks</h2><div id="looks"></div>
   <h2>Text</h2>
   <div class="row"><input type="text" id="txt" maxlength="48" placeholder="type anything…   |  =  new line"></div>
   <div class="row"><select id="fontsel">
-    <optgroup label="System — works offline">${Neon.SYS_FONTS.map(f=>`<option>${f}</option>`).join('')}</optgroup>
-    <optgroup label="Google — display &amp; script">${G_FONTS.map(f=>
-      `<option value="${f}">${f}${CAPS.has(f)?' — caps only':''}</option>`).join('')}</optgroup>
+    <optgroup label="System - works offline">${Neon.SYS_FONTS.map(f=>`<option>${f}</option>`).join('')}</optgroup>
+    <optgroup label="Google - display &amp; script">${G_FONTS.map(f=>
+      `<option value="${f}">${f}${CAPS.has(f)?' - caps only':''}</option>`).join('')}</optgroup>
   </select></div>
   <div class="row"><input type="text" id="gfont" placeholder="…or any Google font name ⏎"></div>
   <div id="fstat"></div>
@@ -164,9 +164,9 @@ for (const [g, key, label, min, max, step] of SLIDERS){
 panel.insertAdjacentHTML('beforeend', `
   <h2>Frame</h2>
   <div class="row"><select id="frame">
-    <option value="fill">Fill window</option><option value="16:9">16 : 9 — hero</option>
-    <option value="21:9">21 : 9 — banner</option><option value="1:1">1 : 1 — square</option>
-    <option value="4:5">4 : 5 — social</option>
+    <option value="fill">Fill window</option><option value="16:9">16 : 9 - hero</option>
+    <option value="21:9">21 : 9 - banner</option><option value="1:1">1 : 1 - square</option>
+    <option value="4:5">4 : 5 - social</option>
   </select></div>
   <div class="acts"><button id="replay">▶ Replay</button>
   <button id="share">Copy link</button><button id="solo">Hide panel</button></div>
@@ -211,7 +211,7 @@ async function setFont(name){
     stat.textContent = `✗ no Google font "${name}" (or offline)`; return; }
   sign.set({ font: name });
   if (r.caps){ stat.style.color = '#d8a05a';
-    stat.textContent = `✓ ${name} — caps-only face, lowercase renders as capitals`; }
+    stat.textContent = `✓ ${name} - caps-only face, lowercase renders as capitals`; }
   else { stat.style.color = '#7fd8c4'; stat.textContent = '✓ ' + name; }
   $('fontsel').value = name;
 }
@@ -270,7 +270,7 @@ function syncPanel(){
   syncPanel();
   if (hashFreeze && /^\d+$/.test(hashFreeze[1])){
     /* Hiding the panel RESIZES the stage, and the engine's ResizeObserver
-       fires asynchronously — after the frame loop below. It would rebuild the
+       fires asynchronously - after the frame loop below. It would rebuild the
        sign and wipe the frozen frame. So: hide first, let layout and the
        observer settle, and only then drive the frames. */
     $('panel').style.display = 'none';

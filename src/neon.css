@@ -1,4 +1,4 @@
-/* neon-text v1.0.0 — scene styles
+/* neon-text v1.0.0 - scene styles
    Everything is scoped to .neon-scene and driven by custom properties set on
    that element (never on :root), so several signs can share a page. */
 
@@ -17,7 +17,7 @@
 }
 .neon-scene > * { position: absolute; }
 
-/* back wall — neon needs a plane to fall on, not a void */
+/* back wall - neon needs a plane to fall on, not a void */
 .neon-wall {
   inset: 0; z-index: 0;
   background:
@@ -33,7 +33,7 @@
 }
 .neon-canvas { display: block; inset: 0; z-index: 2; }
 
-/* the pool of light thrown onto the floor. Its top edge MUST be masked — a
+/* the pool of light thrown onto the floor. Its top edge MUST be masked - a
    radial gradient clipped by a box edge draws a hard rule across the scene. */
 .neon-pool {
   left: 0; right: 0; top: var(--floor); height: 52%; z-index: 3;
@@ -49,7 +49,7 @@
 .neon-off span, .neon-lit span, .neon-ref span { position: absolute; white-space: pre; }
 .neon-off span { color: #212125; text-shadow: 0 1px 0 rgba(255,255,255,.05); }
 /* both start dark and are lit per frame by the engine. The reflection needs the
-   same default as the lit layer — without it, any frame the engine doesn't
+   same default as the lit layer - without it, any frame the engine doesn't
    reach renders the reflection at FULL strength over an unlit sign. */
 .neon-lit span, .neon-ref span { opacity: 0; }
 
@@ -69,7 +69,7 @@
   inset: 0; z-index: 7; pointer-events: none;
   opacity: calc(.045 * var(--room)); mix-blend-mode: overlay;
 }
-/* the sign lighting its surroundings. Scene-scoped by default — a library has
+/* the sign lighting its surroundings. Scene-scoped by default - a library has
    no business flashing the host page. */
 .neon-bloom {
   inset: 0; z-index: 8; pointer-events: none; opacity: 0; mix-blend-mode: screen;

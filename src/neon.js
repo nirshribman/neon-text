@@ -1,10 +1,10 @@
-/*! neon-text v1.0.0 — MIT
+/*! neon-text v1.0.0 - MIT
  *
  *  A neon sign that assembles, strikes and burns, built from a particle field.
  *
  *  Hybrid by design: real DOM text carries the tube (crisp, selectable,
  *  accessible), a canvas of particles behind it carries the gas, the assembly
- *  and the flash. Neither layer alone does the job — dots cannot render a
+ *  and the flash. Neither layer alone does the job - dots cannot render a
  *  continuous saturated tube, and canvas letters are not text.
  *
  *  Classic script on purpose, NOT an ES module: `import` is blocked from
@@ -24,7 +24,7 @@ var T_OFF = 45, T_STRIKE = 115, T_FLASH = 119, FLASH_LEN = 4, DECAY_LEN = 40;
 var T_ASM = 96, T_IGNITE = 104;
 var SQUASH = .5;                       // floor foreshortening for the reflection
 
-/* Dots draw additively, so total light scales with count — without this the
+/* Dots draw additively, so total light scales with count - without this the
    dot count is secretly an exposure control. Normalising decouples them: dots
    become texture, flash becomes brightness. The exponent is MEASURED (mean
    canvas luminance sampled at 2k/4.6k/12k/24k), not reasoned: it lands near
@@ -34,16 +34,16 @@ var DENS_REF = 4600, DENS_EXP = .42;
 /* Perf, measured over real rAF frames (a synchronous draw loop omits paint and
    misreports this by ~2x). Display capped at 11.2ms: 4.6k->11.1, 10k->11.1
    (still vsync-locked), 16k->16.5, 20k->20.1. Full rate to ~10k, 60fps to ~16k.
-   Past ~16k, per-dot fillRect is the wrong primitive — use ImageData. */
+   Past ~16k, per-dot fillRect is the wrong primitive - use ImageData. */
 var DOTS_SMOOTH = 10000;
 var HEAVY_AT = 6000;                   // above this, cheap noise + half reflections
 
 var RM = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 var MODES = {
-  strike:   'Flicker, false starts, then one hard flash — every letter at once.',
+  strike:   'Flicker, false starts, then one hard flash - every letter at once.',
   cascade:  'Letters fire one by one, left to right, each with its own flash.',
-  random:   'Same, in scrambled order — a sign wiring itself up.',
+  random:   'Same, in scrambled order - a sign wiring itself up.',
   wave:     'All lit, with a pulse of light travelling along the tube.',
   assemble: 'Particles fly in and build the letterform, then it ignites.',
   instant:  'Straight on. No theatre.'
@@ -77,7 +77,7 @@ var DEFAULTS = {
   gap: 9                 // frames between letters in per-letter modes
 };
 
-/* complete looks — font, palette, mode, room and physics together */
+/* complete looks - font, palette, mode, room and physics together */
 var LOOKS = {
   Diner:  { font:'Monoton', glow:'#ff2d95', core:'#fff3f8', mode:'strike', wall:'#17171b',
             hue:0, track:8, gas:1, hug:.72, trail:22, flash:1, reflect:.8 },
@@ -97,7 +97,7 @@ var LOOKS = {
 var SYS_FONTS = ['Arial Black','Impact','Georgia','Trebuchet MS','Courier New','Palatino Linotype'];
 
 /* Uppercase-only faces: lowercase codepoints map to capital glyphs, so typing
-   "photography" renders "PHOTOGRAPHY". Nothing here transforms text — it is the
+   "photography" renders "PHOTOGRAPHY". Nothing here transforms text - it is the
    font's design and cannot be undone. All we can do is report it. */
 var CAPS_FONTS = ['Bebas Neue','Staatliches','Bungee','Six Caps','Bungee Shade','Bungee Inline'];
 
@@ -135,7 +135,7 @@ function shiftHue(hex, deg){
     return Math.round(v*255).toString(16).padStart(2,'0'); }).join('');
 }
 
-/* film grain, generated once and shared — keeps the page asset-free */
+/* film grain, generated once and shared - keeps the page asset-free */
 var GRAIN = (function(){
   var g = document.createElement('canvas'); g.width = g.height = 72;
   var gx = g.getContext('2d'), im = gx.createImageData(72,72);
@@ -162,7 +162,7 @@ function capsOnly(fam, weight){
 
 /* Load a Google font by name. Requests the family with NO weight axis, via
    <link> rather than fetch: ":wght@700" 404s on every single-weight display
-   face, and that 404 carries no CORS header — two red console errors per load.
+   face, and that 404 carries no CORS header - two red console errors per load.
    Most signage faces are 400-only anyway. */
 function loadFont(name){
   if (SYS_FONTS.indexOf(name) >= 0)
@@ -178,7 +178,7 @@ function loadFont(name){
   return ready
     /* Gate on the REAL face. If the glyphs are sampled while the webfont is
        still in flight, the canvas rasterises a fallback while the DOM later
-       swaps to the real one — and the dots sit on letters that no longer
+       swaps to the real one - and the dots sit on letters that no longer
        exist. This await is not optional. */
     .then(function(){ return document.fonts.load('400 110px "' + name + '"'); })
     .catch(function(){})
@@ -244,7 +244,7 @@ Sign.prototype._buildDOM = function(){
   this.elGrain.style.backgroundImage = 'url(' + GRAIN + ')';
   this.elBloom = mk('neon-bloom');
   /* TRANSPARENT on purpose. An opaque canvas at z-index 2 hides the wall and
-     floor planes underneath it entirely — the "room" then comes from nothing
+     floor planes underneath it entirely - the "room" then comes from nothing
      but accumulated trail. */
   this.ctx = this.canvas.getContext('2d', { alpha:true });
   this.off = document.createElement('canvas');
@@ -293,7 +293,7 @@ Sign.prototype.set = function(opts){
 
   if (changed.indexOf('font') >= 0){
     var sys = SYS_FONTS.indexOf(this.o.font) >= 0,
-        /* if the face is already available, apply it synchronously — kicking
+        /* if the face is already available, apply it synchronously - kicking
            off another async load would rebuild + replay LATER and stomp on
            whatever the caller does next (it silently reset the frame counter
            mid-capture) */
@@ -314,7 +314,7 @@ Sign.prototype.set = function(opts){
   return this;
 };
 
-/** Apply a named look from Neon.LOOKS. Resets unlisted values to defaults —
+/** Apply a named look from Neon.LOOKS. Resets unlisted values to defaults -
  *  a look lists only what it changes, so merging its diff onto live options
  *  lets the previous look bleed through. */
 Sign.prototype.look = function(name){
@@ -346,7 +346,7 @@ Sign.prototype.build = function(){
   var lines = String(o.text).split('|').map(function(s){ return s.length ? s : ' '; });
   var HAS_LS = 'letterSpacing' in oc;
   var size = o.size;
-  /* tracking as a FRACTION OF SIZE — with fixed px, total width isn't linear in
+  /* tracking as a FRACTION OF SIZE - with fixed px, total width isn't linear in
      size, the shrink-to-fit undershoots and long strings spill off-stage */
   var track = function(){ return HAS_LS ? o.track / 100 * size : 0; };
   var fontStr = function(){ return self.fontWeight + ' ' + size + 'px "' + o.font + '", sans-serif'; };
@@ -377,7 +377,7 @@ Sign.prototype.build = function(){
 
   /* Draw each char at its computed x, then sample that line's band. Canvas and
      DOM read from the SAME x list, so the two rendering engines cannot drift
-     apart — never render them independently and nudge until they match. */
+     apart - never render them independently and nudge until they match. */
   oc.clearRect(0,0,W,H); oc.fillStyle = '#fff'; oc.font = fontStr();
   var slots = [];
   lines.forEach(function(ln, li){
@@ -440,7 +440,7 @@ Sign.prototype.build = function(){
                         'px;line-height:' + (asc + desc) + 'px;font:' + fontStr();
       if (lit){
         /* a pure-white fill on a heavy face reads as a white slab, not a lit
-           tube — carry some of the gas colour into the glass itself */
+           tube - carry some of the gas colour into the glass itself */
         e.style.color = mix(o.core, hexi, .26);
         e.style.textShadow = '0 0 3px ' + mix(o.core, hexi, .4) + ', 0 0 9px ' + hexi +
           ', 0 0 20px ' + hexi + ', 0 0 42px ' + hexi + ', 0 0 86px ' + hexi + ', 0 0 150px ' + hexi;
@@ -466,14 +466,14 @@ Sign.prototype.build = function(){
   });
   this.nInked = Math.max(1, this.CH.filter(function(c){ return c.dots.length; }).length);
   /* hard clear on rebuild: the trail buffer still holds the PREVIOUS word's
-     particles, and at a slow fade they linger as a ghost of the old text —
+     particles, and at a slow fade they linger as a ghost of the old text -
      most visibly in the reflection, which is the dimmest layer */
   this.ctx.clearRect(0, 0, W, H);
   this._schedule(); this._scatter(); this._applyRoom();
   return this;
 };
 
-/* each character's strike frame — the whole "variety of animation" knob */
+/* each character's strike frame - the whole "variety of animation" knob */
 Sign.prototype._schedule = function(){
   var o = this.o;
   var inked = this.CH.filter(function(c){ return c.dots.length; });
@@ -492,7 +492,7 @@ Sign.prototype._scatter = function(){
   var o = this.o, W = this.W, H = this.H;
   this.CH.forEach(function(ch){
     ch.dots.forEach(function(d){
-      /* reduced motion: dots START on target. "Animation off" is not enough —
+      /* reduced motion: dots START on target. "Animation off" is not enough -
          the first painted frame has to be the finished, legible sign. */
       if (RM){ d.x = d.tx; d.y = d.ty; d.vx = d.vy = 0; return; }
       /* hug slides the gas between a room-filling haze (0) and glow clinging
@@ -571,7 +571,7 @@ Sign.prototype.step = function(){
   if (wide && F >= T_FLASH && F < T_FLASH + DECAY_LEN)
     fade = 1.2 + (o.trail - 1.2) * ((F - T_FLASH) / DECAY_LEN);
   /* while the shape builds, hold the frame longer so each particle draws a
-     STREAK of its flight path — otherwise the assembly reads as a static
+     STREAK of its flight path - otherwise the assembly reads as a static
      stipple that happens to change, and nothing ever appears to travel */
   if (o.mode === 'assemble' && F < T_IGNITE)
     fade = 3 + (o.trail - 3) * Math.pow(Math.min(1, F / T_ASM), 2);
@@ -580,8 +580,8 @@ Sign.prototype.step = function(){
      Trails used to come from fading the previous frame instead of clearing it,
      and every such scheme burns in: fading is PROPORTIONAL (alpha *= 1-a), and
      8-bit rounding means round(1 * 0.914) === 1. Anything that reaches alpha
-     1..5 never decays, so wherever a particle has ever been — every path the
-     cursor ever pushed one along — keeps a permanent faint smear.
+     1..5 never decays, so wherever a particle has ever been - every path the
+     cursor ever pushed one along - keeps a permanent faint smear.
      Trails are drawn explicitly instead, as a motion segment per particle
      (see the stroke below), which is bounded, controllable, and cannot stain. */
   ctx.clearRect(0, 0, W, H);
@@ -593,7 +593,7 @@ Sign.prototype.step = function(){
   var t = F * .012, PR = 150, refl = o.reflect,
       DENS = Math.pow(DENS_REF / Math.max(400, o.dots), DENS_EXP),
       /* vnoise is 8 sin per dot per frame; above the heavy threshold swap to a
-         cheap spatial sinusoid — with that many particles the field's fine
+         cheap spatial sinusoid - with that many particles the field's fine
          structure isn't legible anyway */
       HEAVY = o.dots > HEAVY_AT,
       tubeMul = (!RM && o.mode === 'assemble' && F < T_IGNITE) ? 0 : 1,
@@ -655,7 +655,7 @@ Sign.prototype.step = function(){
         ctx.lineTo(d.x, d.y);
       }
 
-      /* at high density reflect only half the dots at double weight — the
+      /* at high density reflect only half the dots at double weight - the
          reflection is diffuse by design, so the halved fillRect count is
          invisible in the result and very visible in the frame time */
       if (refl && d.y < FLOOR && (!HEAVY || d.p > 3.14)){
@@ -683,7 +683,7 @@ Sign.prototype.step = function(){
       ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (base * 2.6 * DENS).toFixed(3) + ')';
       for (var q2 = 0; q2 < land.length; q2 += 3) ctx.fillRect(land[q2], land[q2+1], land[q2+2], land[q2+2]);
     }
-    /* `tube` dials the DOM glass out entirely — at 0 the letterform is nothing
+    /* `tube` dials the DOM glass out entirely - at 0 the letterform is nothing
        but particles, in any mode */
     var op = Math.min(1, e.lit) * o.tube * (e.tube != null ? e.tube : 1);
     ch.span.style.opacity = ch.spanR.style.opacity = op;
@@ -693,7 +693,7 @@ Sign.prototype.step = function(){
   }
 
   /* the dead-glass layer sits ABOVE the canvas, so it occludes every dot inside
-     the glyph — it has to fade with the tube, or "particles build the
+     the glyph - it has to fade with the tube, or "particles build the
      letterform" only ever shows an outline of the letterform */
   this.elOff.style.opacity = o.tube * tubeMul;
 
@@ -736,7 +736,7 @@ Sign.prototype._loop = function(){
   })();
 };
 
-/** Stop the render loop. step() still works, so you can drive frames by hand —
+/** Stop the render loop. step() still works, so you can drive frames by hand -
  *  which is how a given frame is captured reproducibly. */
 Sign.prototype.pause = function(){
   this._paused = true;
@@ -765,7 +765,7 @@ global.Neon = {
   version: VERSION,
   create: function(target, opts){
     var el = typeof target === 'string' ? document.querySelector(target) : target;
-    if (!el) throw new Error('Neon.create: target not found — ' + target);
+    if (!el) throw new Error('Neon.create: target not found - ' + target);
     return new Sign(el, opts);
   },
   loadFont: loadFont,

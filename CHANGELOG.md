@@ -1,9 +1,9 @@
 # Changelog
 
-Frozen single-file builds live in `versions/` and never change — a link to one
+Frozen single-file builds live in `versions/` and never change - a link to one
 keeps working regardless of what happens to `src/`.
 
-## v1.0.0 — 2026-08-15
+## v1.0.0 - 2026-08-15
 
 First release.
 
@@ -19,7 +19,7 @@ First release.
 ### Fixed during v1.0.0 verification
 
 - **Trail burn-in.** Trails came from fading the previous frame; fading is
-  proportional (`alpha *= 1-a`) and 8-bit rounding leaves anything at alpha 1–5
+  proportional (`alpha *= 1-a`) and 8-bit rounding leaves anything at alpha 1-5
   permanent. Every path a particle was pushed along kept a smear. Frames now
   clear completely and trails are drawn explicitly as motion segments.
 - **Opaque canvas hid the scene.** It sat above the wall and floor planes, so

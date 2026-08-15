@@ -2,7 +2,7 @@
 
 A neon sign that assembles, strikes and burns — built from a particle field.
 
-**[▶ Live playground](https://YOUR-USERNAME.github.io/neon-text/)** · type any text, six animations,
+**[▶ Live playground](https://nirshribman-byte.github.io/neon-text/)** · type any text, six animations,
 any Google font, shareable links.
 
 ![neon-text](docs/hero.png)

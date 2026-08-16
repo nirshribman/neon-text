@@ -3,6 +3,21 @@
 Frozen single-file builds live in `versions/` and never change - a link to one
 keeps working regardless of what happens to `src/`.
 
+## Unreleased - playground only
+
+The library (`src/`) is untouched, so exported embeds and the pinned `v1.1.0`
+CDN URLs are unaffected. This changes `index.html`, which is what GitHub Pages
+serves.
+
+- **Hiding the panel was a dead end.** `H` did toggle it back, but the only
+  place that shortcut was documented was the hint line *inside the panel* - so
+  hiding it also hid the instructions for undoing it, leaving zero visible
+  controls on screen. There is now a quiet "☰ Panel" button pinned top-right
+  whenever the panel is hidden. An action must not remove its own escape route.
+- Focus is handed between the two controls instead of being stranded on a
+  `display:none` element: hiding moves focus to the restore button, restoring
+  moves it back to "Hide panel".
+
 ## v1.1.0 - 2026-08-16
 
 Three new modes, including the first exit, and code export for external pages.

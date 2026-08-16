@@ -54,6 +54,15 @@
   #replay { grid-column:1/3; border-color:#7fd8c4; color:#7fd8c4; }
   #fstat { font-size:11px; min-height:15px; margin-top:6px; }
 
+  /* The way back. Solo mode removes the panel - and the panel is where the
+     "H = panel" hint lives, so hiding it also hides the only instructions for
+     undoing it. Quiet enough not to intrude on the artwork, but never absent:
+     an action must not remove its own escape route. */
+  #restore { display:none; position:fixed; top:14px; right:14px; z-index:9;
+             width:auto; padding:7px 11px; opacity:.3; transition:opacity .15s; }
+  body.solo #restore { display:block; }
+  #restore:hover, #restore:focus-visible { opacity:1; border-color:#7fd8c4; color:#7fd8c4; }
+
   #exportwrap { position:fixed; inset:0; background:rgba(2,2,3,.72); display:none;
                 align-items:center; justify-content:center; z-index:10; }
   #exportwrap.open { display:flex; }
@@ -75,6 +84,7 @@
 
 <div id="hold"><div id="stage"></div></div>
 <div id="panel"></div>
+<button id="restore" title="Show the controls (H)" aria-label="Show the controls">☰ Panel</button>
 
 <script src="src/neon.js"></script>
 <script>
@@ -224,6 +234,7 @@ document.querySelectorAll('#swatches i').forEach(s =>
 $('replay').onclick = () => sign.replay();
 $('reset').onclick = () => { curLook = null; sign.set(Neon.DEFAULTS); syncPanel(); sign.replay(); };
 $('solo').onclick = toggleSolo;
+$('restore').onclick = toggleSolo;
 $('frame').addEventListener('change', e => setFrame(e.target.value));
 /* copy feedback must be HONEST: clipboard.writeText rejects on insecure
    contexts and denied permission, and a false "✓ copied" on a copy-paste
@@ -361,10 +372,16 @@ function setFrame(name){
   sign.resize();
 }
 function toggleSolo(){
-  /* hiding the panel must not strand keyboard focus on a hidden control */
-  if (!document.body.classList.contains('solo') &&
-      panel.contains(document.activeElement)) document.activeElement.blur();
+  /* the control just used is about to be hidden, so hand focus to its
+     counterpart rather than stranding it on a display:none element. Read the
+     state BEFORE the toggle - the browser blurs an element the moment it
+     becomes display:none, and activeElement is already body by then. */
+  const goingSolo = !document.body.classList.contains('solo'),
+        fromPanel = panel.contains(document.activeElement),
+        fromRestore = document.activeElement === $('restore');
   document.body.classList.toggle('solo');
+  if (goingSolo && fromPanel) $('restore').focus();
+  else if (!goingSolo && fromRestore) $('solo').focus();
   setTimeout(() => setFrame(FRAME), 30);          // panel width changed → re-fit
 }
 addEventListener('resize', () => { clearTimeout(window._rt); window._rt = setTimeout(() => setFrame(FRAME), 140); });

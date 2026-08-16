@@ -44,12 +44,33 @@
   button { padding:8px 6px; background:#15151a; color:#a8a8b0; border:1px solid #26262e;
            border-radius:6px; cursor:pointer; font:inherit; width:100%; transition:.12s; }
   button:hover { background:#1e1e25; color:#d8d8dd; }
-  #modes, #looks { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-  #modes button { text-transform:capitalize } #modes button.on { border-color:#7fd8c4; color:#7fd8c4; background:#12211e }
+  #looks { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  /* 9 modes: a 3x3 grid, no orphan half-row */
+  #modes { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+  #modes button { text-transform:capitalize; padding:8px 2px; font-size:11px; }
+  #modes button.on, #looks button.on { border-color:#7fd8c4; color:#7fd8c4; background:#12211e }
   .hint { color:#5c5c66; font-size:11px; margin-top:8px; min-height:28px; }
   .acts { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:16px; }
   #replay { grid-column:1/3; border-color:#7fd8c4; color:#7fd8c4; }
   #fstat { font-size:11px; min-height:15px; margin-top:6px; }
+
+  #exportwrap { position:fixed; inset:0; background:rgba(2,2,3,.72); display:none;
+                align-items:center; justify-content:center; z-index:10; }
+  #exportwrap.open { display:flex; }
+  /* 700px: the pinned CDN URLs are the longest lines and the whole point -
+     they must be readable without horizontal scrolling */
+  #exportdlg { width:min(700px, calc(100vw - 48px)); background:#0b0b0d; border:1px solid #26262e;
+            border-radius:10px; padding:18px 18px 16px; box-shadow:0 30px 90px -20px #000; }
+  #exportdlg h3 { margin:0 0 4px; font-size:13px; color:#e8e8ec; font-weight:600; }
+  #exportdlg .sub { margin-bottom:12px; }
+  #exportcode { width:100%; resize:vertical; background:#000; color:#d8d8dd;
+                border:1px solid #26262e; border-radius:6px; padding:10px;
+                font:10px/1.5 ui-monospace,Consolas,monospace; white-space:pre; }
+  /* quiet focus: the mint primary belongs to Copy code alone */
+  #exportcode:focus { outline:none; border-color:#3a3a44; }
+  #exportdlg .acts { margin-top:10px; }
+  /* the one button the modal exists for carries the primary treatment */
+  #exportcopy { border-color:#7fd8c4; color:#7fd8c4; }
 </style>
 
 <div id="hold"><div id="stage"></div></div>
@@ -138,16 +159,19 @@ panel.insertAdjacentHTML('beforeend', `
     <div><small>Core</small><input type="color" id="corec"></div>
   </div>`);
 
+/* the active look, or null once any manual change diverges from it - the grid
+   must answer "which look am I in", and after an edit the honest answer is none */
+let curLook = null;
 Object.keys(Neon.LOOKS).forEach(name => {
   const b = document.createElement('button');
-  b.textContent = name;
-  b.onclick = () => { sign.look(name); syncPanel(); };
+  b.textContent = name; b.id = 'look_' + name;
+  b.onclick = () => { curLook = name; sign.look(name); syncPanel(); };
   document.getElementById('looks').appendChild(b);
 });
 Object.keys(Neon.MODES).forEach(name => {
   const b = document.createElement('button');
   b.textContent = name; b.id = 'mode_' + name;
-  b.onclick = () => { sign.set({ mode:name }); syncPanel(); };
+  b.onclick = () => { curLook = null; sign.set({ mode:name }); syncPanel(); };
   document.getElementById('modes').appendChild(b);
 });
 
@@ -158,7 +182,7 @@ for (const [g, key, label, min, max, step] of SLIDERS){
     `<div class="row" id="row_${key}"><label>${label} <output id="o_${key}"></output></label>
      <input type="range" id="${key}" min="${min}" max="${max}" step="${step}"></div>`);
   document.getElementById(key).addEventListener('input', e => {
-    sign.set({ [key]: +e.target.value }); readouts();
+    curLook = null; sign.set({ [key]: +e.target.value }); readouts(); syncLooks();
   });
 }
 panel.insertAdjacentHTML('beforeend', `
@@ -169,23 +193,46 @@ panel.insertAdjacentHTML('beforeend', `
     <option value="4:5">4 : 5 - social</option>
   </select></div>
   <div class="acts"><button id="replay">▶ Replay</button>
-  <button id="share">Copy link</button><button id="solo">Hide panel</button></div>
-  <div class="acts" style="margin-top:6px"><button id="reset">Reset</button></div>
+  <button id="share">Copy link</button><button id="export">Export code</button></div>
+  <div class="acts" style="margin-top:6px"><button id="solo">Hide panel</button><button id="reset">Reset</button></div>
   <div class="hint" style="margin-top:12px">Space replay · H panel · move the cursor over the sign</div>`);
+
+document.body.insertAdjacentHTML('beforeend', `
+  <div id="exportwrap"><div id="exportdlg" role="dialog" aria-modal="true" aria-labelledby="exporttitle">
+    <h3 id="exporttitle">Use this sign on your page</h3>
+    <div class="sub">Two files and one call, pinned to this version - everything you've dialled
+      in is in the options. The sign is a dark object: give it a dark region of the page
+      (its top and bottom edges feather into whatever is behind them).
+      Google fonts load automatically.</div>
+    <textarea id="exportcode" readonly spellcheck="false"></textarea>
+    <div class="acts"><button id="exportcopy">Copy code</button><button id="exportclose">Close</button></div>
+  </div></div>`);
 
 /* ── wiring ────────────────────────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
+function syncLooks(){
+  document.querySelectorAll('#looks button').forEach(b =>
+    b.classList.toggle('on', b.id === 'look_' + curLook));
+}
 $('txt').addEventListener('input', e => sign.set({ text: e.target.value }));
-$('fontsel').addEventListener('change', e => setFont(e.target.value));
-$('gfont').addEventListener('change', e => e.target.value.trim() && setFont(e.target.value.trim()));
-$('glow').addEventListener('input', e => sign.set({ glow: e.target.value }));
-$('corec').addEventListener('input', e => sign.set({ core: e.target.value }));
+$('fontsel').addEventListener('change', e => { curLook = null; setFont(e.target.value); });
+$('gfont').addEventListener('change', e => { if (e.target.value.trim()){ curLook = null; setFont(e.target.value.trim()); } });
+$('glow').addEventListener('input', e => { curLook = null; sign.set({ glow: e.target.value }); syncLooks(); });
+$('corec').addEventListener('input', e => { curLook = null; sign.set({ core: e.target.value }); syncLooks(); });
 document.querySelectorAll('#swatches i').forEach(s =>
-  s.onclick = () => { sign.set({ glow: s.dataset.c }); $('glow').value = s.dataset.c; });
+  s.onclick = () => { curLook = null; sign.set({ glow: s.dataset.c }); $('glow').value = s.dataset.c; syncLooks(); });
 $('replay').onclick = () => sign.replay();
-$('reset').onclick = () => { sign.set(Neon.DEFAULTS); syncPanel(); sign.replay(); };
+$('reset').onclick = () => { curLook = null; sign.set(Neon.DEFAULTS); syncPanel(); sign.replay(); };
 $('solo').onclick = toggleSolo;
 $('frame').addEventListener('change', e => setFrame(e.target.value));
+/* copy feedback must be HONEST: clipboard.writeText rejects on insecure
+   contexts and denied permission, and a false "✓ copied" on a copy-paste
+   feature sends the user off to paste code they do not have */
+async function copyFeedback(btn, text, idle){
+  try { await navigator.clipboard.writeText(text); btn.textContent = '✓ copied'; }
+  catch (err){ btn.textContent = '✗ press Ctrl+C'; }
+  setTimeout(() => btn.textContent = idle, 1400);
+}
 $('share').onclick = () => {
   const d = Neon.DEFAULTS, o = sign.o;
   const diff = Object.keys(d).filter(k =>
@@ -193,12 +240,95 @@ $('share').onclick = () => {
   location.hash = `#t=${encodeURIComponent(o.text)}&mode=${o.mode}` +
     `&font=${encodeURIComponent(o.font)}&c=${o.glow.slice(1)}&k=${o.core.slice(1)}` +
     (diff ? `&s=${diff}` : '');
-  navigator.clipboard?.writeText(location.href);
-  $('share').textContent = '✓ copied';
-  setTimeout(() => $('share').textContent = 'Copy link', 1400);
+  copyFeedback($('share'), location.href, 'Copy link');
 };
+/* ── export: a copy-paste snippet for an external page ─────────────────────────
+   Only the diff from DEFAULTS is emitted - the point of the snippet is to be
+   READ on the other side, and 25 lines of defaults bury the 4 that matter.
+   URLs are PINNED to this engine's version via the jsDelivr tag CDN: an embed
+   pointing at mutable files breaks the day the library ships a breaking change,
+   and the version comment makes pasted code diagnosable years later. */
+const EXPORT_BASE = `https://cdn.jsdelivr.net/gh/nirshribman/neon-text@v${Neon.version}`;
+function exportSnippet(){
+  const d = Neon.DEFAULTS, o = sign.o, opts = [`    text: ${JSON.stringify(o.text)}`];
+  for (const k of Object.keys(d)){
+    if (k === 'text' || o[k] === d[k]) continue;
+    opts.push(`    ${k}: ${typeof o[k] === 'string' ? JSON.stringify(o[k]) : o[k]}`);
+  }
+  /* script tags written whole - OPENING ones included - derail THIS page's HTML
+     parser mid-string (verified: the document splits into 3 scripts and the
+     snippet source renders as page text). Concat keeps the parser out. */
+  const ST = '<scr' + 'ipt', SC = '</scr' + 'ipt>';
+  /* the mask feathers BOTH edges so the dark room dissolves into the host page
+     instead of ending in a razor-straight seam - asymmetric (short ramp on top,
+     long fade below) because host content usually sits closer above the sign
+     than below it. Emitted as a style block, not an inline attribute: a
+     ~205-character div line cannot be read in the snippet's own window, and
+     the snippet's point is to be READ. */
+  const FADE = 'linear-gradient(transparent, #000 12%, #000 72%, transparent)';
+  return `<!-- neon-text v${Neon.version} - github.com/nirshribman/neon-text -->
+<link rel="stylesheet" href="${EXPORT_BASE}/src/neon.css">
+${ST} src="${EXPORT_BASE}/src/neon.js">${SC}
+
+<style>
+  /* top and bottom feather into the host page - asymmetric on purpose:
+     host content usually sits closer above the sign than below it */
+  #neon-sign{
+    width:100%; height:420px;
+    mask-image:${FADE};
+    -webkit-mask-image:${FADE};
+  }
+</style>
+<div id="neon-sign"></div>
+${ST}>
+  Neon.create('#neon-sign', {
+${opts.join(',\n')}
+  });
+${SC}`;
+}
+function openExport(){
+  const ta = $('exportcode');
+  ta.value = exportSnippet();
+  $('exportwrap').classList.add('open');
+  /* the Tab trap is keyboard-only; inert makes the background dead to a screen
+     reader's virtual cursor too */
+  $('panel').inert = true; $('hold').inert = true;
+  ta.style.height = 'auto';                        // size to the snippet, not to a guess
+  ta.style.height = Math.min(340, ta.scrollHeight + 4) + 'px';
+  ta.focus(); ta.select();
+}
+function closeExport(){
+  if (!$('exportwrap').classList.contains('open')) return;
+  $('exportwrap').classList.remove('open');
+  $('panel').inert = false; $('hold').inert = false;
+  $('export').focus();                             // focus returns where it came from
+}
+$('export').onclick = openExport;
+$('exportclose').onclick = closeExport;
+$('exportwrap').onclick = e => { if (e.target.id === 'exportwrap') closeExport(); };
+$('exportcopy').onclick = () => copyFeedback($('exportcopy'), $('exportcode').value, 'Copy code');
+
 addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  /* Escape first: the modal focuses the textarea on open, so an early return
+     for form fields would kill the one key everybody tries */
+  if (e.key === 'Escape'){ closeExport(); return; }
+  if ($('exportwrap').classList.contains('open') && e.key === 'Tab'){
+    /* trap: Tab cycles the dialog, never the obscured panel behind the scrim */
+    const ring = [$('exportcode'), $('exportcopy'), $('exportclose')];
+    const i = ring.indexOf(document.activeElement);
+    e.preventDefault();
+    ring[(i + (e.shiftKey ? -1 : 1) + ring.length) % ring.length].focus();
+    return;
+  }
+  /* swallow only what the focused control actually uses: a blanket return for
+     BUTTON/range killed the H shortcut after any click until focus moved */
+  if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  /* range sliders pass letters through (H keeps working) but keep Space: a
+     user nudging a slider should not trigger a full restart */
+  if (e.target.type === 'range' && e.code === 'Space') return;
+  if (e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'BUTTON' && (e.code === 'Space' || e.key === 'Enter')) return;
+  if (e.target.id === 'exportcode') return;        // typing/selecting in the snippet
   if (e.code === 'Space'){ e.preventDefault(); sign.replay(); }
   if (e.key.toLowerCase() === 'h') toggleSolo();
 });
@@ -231,6 +361,9 @@ function setFrame(name){
   sign.resize();
 }
 function toggleSolo(){
+  /* hiding the panel must not strand keyboard focus on a hidden control */
+  if (!document.body.classList.contains('solo') &&
+      panel.contains(document.activeElement)) document.activeElement.blur();
   document.body.classList.toggle('solo');
   setTimeout(() => setFrame(FRAME), 30);          // panel width changed → re-fit
 }
@@ -254,12 +387,13 @@ function syncPanel(){
     const el = $(key); if (!el) continue;
     el.value = o[key];
     const off = modes && !modes.includes(o.mode);
-    el.disabled = off; $('row_' + key).style.opacity = off ? .32 : 1;
+    el.disabled = off; $('row_' + key).style.opacity = off ? .5 : 1;
   }
   $('txt').value = o.text; $('glow').value = o.glow; $('corec').value = o.core;
   $('fontsel').value = o.font;
   document.querySelectorAll('#modes button').forEach(b =>
     b.classList.toggle('on', b.id === 'mode_' + o.mode));
+  syncLooks();
   $('modehint').textContent = Neon.MODES[o.mode];
   readouts();
 }

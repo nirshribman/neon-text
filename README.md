@@ -31,7 +31,7 @@ npm. Open [`examples/minimal.html`](examples/minimal.html) straight from disk an
 ```js
 const sign = Neon.create('#stage', {
   text:  'OPEN|ALL NIGHT',   // "|" starts a new line
-  mode:  'cascade',          // strike · cascade · random · wave · assemble · instant
+  mode:  'cascade',          // strike · cascade · random · wave · assemble · trace · broken · drain · instant
   font:  'Monoton',          // any Google font, or a system face
   glow:  '#ff2d95',
   tube:  1,                  // 1 = neon tube · 0 = letterform of pure particles
@@ -45,7 +45,7 @@ sign.resume();
 sign.destroy();
 
 await Neon.loadFont('Bungee');                 // → { ok, weight, caps }
-Neon.MODES · Neon.LOOKS · Neon.DEFAULTS · Neon.SYS_FONTS
+Neon.MODES · Neon.EXIT_MODES · Neon.LOOKS · Neon.DEFAULTS · Neon.SYS_FONTS
 ```
 
 ### Animation modes
@@ -57,7 +57,13 @@ Neon.MODES · Neon.LOOKS · Neon.DEFAULTS · Neon.SYS_FONTS
 | `random` | same, in scrambled order - a sign wiring itself up |
 | `wave` | all lit, with a pulse of light travelling along the tube |
 | `assemble` | particles fly in and **build the letterform**, then it ignites |
+| `trace` | a hot head of light sweeps the ink left to right, filling the letters behind it |
+| `broken` | a tired sign - one or two letters stutter, die, and keep trying |
+| `drain` | the **exit**: power cuts, letters die in a ripple, the gas lets go and drifts away |
 | `instant` | straight on |
+
+`drain` is the only exit mode (`Neon.EXIT_MODES`) - everything else is an entrance. Under
+`prefers-reduced-motion` an exit renders its honest end state: the dead sign, immediately.
 
 ### Two options that change what it is
 

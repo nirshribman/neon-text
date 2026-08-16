@@ -1,3 +1,163 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>neon-text v1.1.0</title>
+<!-- frozen build v1.1.0 - do not edit -->
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="A neon sign that assembles, strikes and burns, built from a particle field.">
+<!-- inline so the page stays asset-free and the console stays silent; a missing
+     favicon is a 404 in every visitor's devtools -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23070708'/%3E%3Ctext x='16' y='23' font-family='Arial Black,sans-serif' font-size='20' text-anchor='middle' fill='%23ff2d95'%3EN%3C/text%3E%3C/svg%3E">
+<style>
+/* neon-text v1.1.0 - scene styles
+   Everything is scoped to .neon-scene and driven by custom properties set on
+   that element (never on :root), so several signs can share a page. */
+
+.neon-scene {
+  position: relative;
+  overflow: hidden;
+  background: #070708;
+  --nc: #ff2d95;      /* current glow colour            */
+  --br: 55%;          /* bloom radius                   */
+  --bx: 50%;          /* bloom centre, % across scene   */
+  --px: 50%;          /* pool centre - the lit centroid, not the loudest letter */
+  --pool: 0;          /* floor light intensity          */
+  --room: 1;          /* wall/floor/vignette presence   */
+  --wall: #17171b;    /* wall tint                      */
+  --floor: 74%;       /* ground line, % down the scene  */
+  --ref: .2;          /* reflection opacity             */
+}
+.neon-scene > * { position: absolute; }
+
+/* back wall - neon needs a plane to fall on, not a void */
+.neon-wall {
+  inset: 0; z-index: 0;
+  background:
+    radial-gradient(120% 80% at 50% 38%, var(--wall) 0%, #0b0b0d 58%, #070708 100%),
+    linear-gradient(#0a0a0c, #050506);
+}
+/* ground. No hard seam: it has to arrive as a gradient, or it reads as a
+   rectangle pasted over the wall. */
+.neon-floor {
+  left: 0; right: 0; top: calc(var(--floor) - 9%); bottom: 0; z-index: 1;
+  opacity: var(--room);
+  background: linear-gradient(rgba(20,20,24,0) 0%, #0d0d10 26%, #08080a 60%, #050506 100%);
+}
+.neon-canvas { display: block; inset: 0; z-index: 2; }
+
+/* the pool of light thrown onto the floor. Its top edge MUST be masked - a
+   radial gradient clipped by a box edge draws a hard rule across the scene. */
+.neon-pool {
+  left: 0; right: 0; top: var(--floor); height: 52%; z-index: 3;
+  pointer-events: none; mix-blend-mode: screen;
+  opacity: calc(var(--pool) * var(--room));
+  background: radial-gradient(58% 100% at var(--px) 0%, var(--nc) 0%, transparent 72%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 60%, transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 60%, transparent 100%);
+}
+
+/* the tube: real DOM text, one span per character, three stacked layers */
+.neon-off, .neon-lit { inset: 0; z-index: 4; pointer-events: none; }
+.neon-off span, .neon-lit span, .neon-ref span { position: absolute; white-space: pre; }
+.neon-off span { color: #212125; text-shadow: 0 1px 0 rgba(255,255,255,.05); }
+/* both start dark and are lit per frame by the engine. The reflection needs the
+   same default as the lit layer - without it, any frame the engine doesn't
+   reach renders the reflection at FULL strength over an unlit sign. */
+.neon-lit span, .neon-ref span { opacity: 0; }
+
+/* reflection: foreshortened about the ground line, blurred, masked to a fade */
+.neon-refwrap {
+  inset: 0; z-index: 3; pointer-events: none; opacity: var(--room);
+  -webkit-mask-image: linear-gradient(to bottom, transparent var(--floor), #000 calc(var(--floor) + 2%), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent var(--floor), #000 calc(var(--floor) + 2%), transparent 100%);
+}
+.neon-ref { inset: 0; filter: blur(3.5px); opacity: var(--ref); }
+
+.neon-vig {
+  inset: 0; z-index: 6; pointer-events: none; opacity: var(--room);
+  background: radial-gradient(75% 65% at 50% 45%, transparent 40%, rgba(0,0,0,.72) 100%);
+}
+.neon-grain {
+  inset: 0; z-index: 7; pointer-events: none;
+  opacity: calc(.045 * var(--room)); mix-blend-mode: overlay;
+}
+/* the sign lighting its surroundings. Scene-scoped by default - a library has
+   no business flashing the host page. */
+.neon-bloom {
+  inset: 0; z-index: 8; pointer-events: none; opacity: 0; mix-blend-mode: screen;
+  background: radial-gradient(circle at var(--bx) 44%, var(--nc) 0%, transparent var(--br));
+}
+
+</style>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; background:#040405; color:#8e8e93; display:flex; min-height:100vh;
+         overflow:hidden; font:12px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  #hold { flex:1; height:100vh; display:flex; align-items:center; justify-content:center;
+          background:#020203; overflow:hidden; }
+  #stage { width:100%; height:100%; }
+  body.framed #stage { box-shadow:0 24px 80px -20px #000, 0 0 0 1px #121216; border-radius:3px; }
+  body.solo #panel { display:none; }
+
+  #panel { width:272px; flex:none; height:100vh; overflow-y:auto; padding:20px 20px 28px;
+           background:#0b0b0d; border-left:1px solid #191920;
+           scrollbar-width:thin; scrollbar-color:#26262e #0b0b0d; }
+  #panel::-webkit-scrollbar { width:8px } #panel::-webkit-scrollbar-thumb { background:#26262e; border-radius:4px }
+  .ttl { color:#e8e8ec; font-size:13px; font-weight:600; }
+  .sub { color:#5c5c66; margin-bottom:18px; }
+  .sub a { color:#7fd8c4; text-decoration:none; }
+  h2 { margin:20px 0 10px; font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+       color:#55555e; font-weight:600; }
+  .row { margin-bottom:11px; }
+  .row label { display:flex; justify-content:space-between; margin-bottom:4px; color:#8e8e93; }
+  .row output { color:#d8d8dd; font-variant-numeric:tabular-nums; font-size:11px; }
+  input[type=range] { width:100%; accent-color:#7fd8c4; height:14px; margin:0; }
+  input[type=text], select { width:100%; padding:8px 10px; background:#000; color:#eaeaef;
+      border:1px solid #26262e; border-radius:6px; font:inherit; }
+  input[type=text]:focus, select:focus { outline:none; border-color:#7fd8c4; }
+  input[type=color] { width:100%; height:30px; padding:0; background:#000; cursor:pointer;
+      border:1px solid #26262e; border-radius:6px; }
+  .cc { display:flex; gap:9px } .cc > div { flex:1 }
+  .cc small { display:block; color:#5c5c66; margin-bottom:4px; }
+  #swatches { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-bottom:11px; }
+  #swatches i { height:22px; border-radius:5px; cursor:pointer; border:1px solid rgba(255,255,255,.14);
+                box-shadow:0 0 10px -1px currentColor; transition:transform .12s; }
+  #swatches i:hover { transform:translateY(-2px); }
+  button { padding:8px 6px; background:#15151a; color:#a8a8b0; border:1px solid #26262e;
+           border-radius:6px; cursor:pointer; font:inherit; width:100%; transition:.12s; }
+  button:hover { background:#1e1e25; color:#d8d8dd; }
+  #looks { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  /* 9 modes: a 3x3 grid, no orphan half-row */
+  #modes { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+  #modes button { text-transform:capitalize; padding:8px 2px; font-size:11px; }
+  #modes button.on, #looks button.on { border-color:#7fd8c4; color:#7fd8c4; background:#12211e }
+  .hint { color:#5c5c66; font-size:11px; margin-top:8px; min-height:28px; }
+  .acts { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:16px; }
+  #replay { grid-column:1/3; border-color:#7fd8c4; color:#7fd8c4; }
+  #fstat { font-size:11px; min-height:15px; margin-top:6px; }
+
+  #exportwrap { position:fixed; inset:0; background:rgba(2,2,3,.72); display:none;
+                align-items:center; justify-content:center; z-index:10; }
+  #exportwrap.open { display:flex; }
+  /* 700px: the pinned CDN URLs are the longest lines and the whole point -
+     they must be readable without horizontal scrolling */
+  #exportdlg { width:min(700px, calc(100vw - 48px)); background:#0b0b0d; border:1px solid #26262e;
+            border-radius:10px; padding:18px 18px 16px; box-shadow:0 30px 90px -20px #000; }
+  #exportdlg h3 { margin:0 0 4px; font-size:13px; color:#e8e8ec; font-weight:600; }
+  #exportdlg .sub { margin-bottom:12px; }
+  #exportcode { width:100%; resize:vertical; background:#000; color:#d8d8dd;
+                border:1px solid #26262e; border-radius:6px; padding:10px;
+                font:10px/1.5 ui-monospace,Consolas,monospace; white-space:pre; }
+  /* quiet focus: the mint primary belongs to Copy code alone */
+  #exportcode:focus { outline:none; border-color:#3a3a44; }
+  #exportdlg .acts { margin-top:10px; }
+  /* the one button the modal exists for carries the primary treatment */
+  #exportcopy { border-color:#7fd8c4; color:#7fd8c4; }
+</style>
+
+<div id="hold"><div id="stage"></div></div>
+<div id="panel"></div>
+
+<script>
 /*! neon-text v1.1.0 - MIT
  *
  *  A neon sign that assembles, strikes and burns, built from a particle field.
@@ -11,8 +171,8 @@
  *  file:// by CORS, and being openable straight from disk is half the point.
  *
  *    <link rel="stylesheet" href="src/neon.css">
- *    <script src="src/neon.js"></script>
- *    <script>Neon.create('#stage', { text: 'OPEN|ALL NIGHT' })</script>
+ *    <script src="src/neon.js"><\/script>
+ *    <script>Neon.create('#stage', { text: 'OPEN|ALL NIGHT' })<\/script>
  */
 (function (global) {
 'use strict';
@@ -987,3 +1147,344 @@ global.Neon = {
 };
 
 })(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+/* The panel is a CONSUMER of the public API - it only ever calls
+   sign.set() / .look() / .replay() / .pause(). Nothing here reaches into the
+   engine, which is what proves the extraction is real. */
+
+const SLIDERS = [
+  ['Colour', 'hue',      'Hue spread',          0,   360, 5,   null ],
+  ['Colour', 'coreHeat', 'Core heat',           0,   1,   .05, null ],
+  ['Type',   'size',     'Size',                28,  240, 2,   null ],
+  ['Type',   'track',    'Letter spacing',      0,   20,  1,   null ],
+  ['Type',   'tube',     'Tube opacity',        0,   1,   .05, null ],
+  ['Gas',    'dots',     'Dots',                800, 30000,200,null ],
+  ['Gas',    'dotSize',  'Dot size',            .5,  3,   .1,  null ],
+  ['Gas',    'gas',      'Gas turbulence',      0,   3,   .05, null ],
+  ['Gas',    'hug',      'Hug letters',         0,   1,   .05, null ],
+  ['Gas',    'settle',   'Settle (spring)',     .02, .3,  .01, null ],
+  ['Gas',    'trail',    'Trail fade',          4,   60,  1,   null ],
+  ['Room',   'room',     'Room presence',       0,   1,   .05, null ],
+  ['Room',   'reflect',  'Reflection',          0,   1,   .05, null ],
+  ['Room',   'push',     'Cursor push',         0,   2,   .05, null ],
+  ['Timing', 'flash',    'Flash intensity',     0,   1.4, .05, null ],
+  ['Timing', 'scatter',  'Start scatter',       0,   400, 10,  null ],
+  ['Timing', 'pulses',   'Strike pulses',       0,   3,   1,   ['strike'] ],
+  ['Timing', 'stagger',  'Arrival stagger',     0,   .9,  .05, ['strike'] ],
+  ['Timing', 'gap',      'Letter gap (frames)', 2,   30,  1,   ['cascade','random','wave'] ],
+];
+const G_FONTS = ['Monoton','Bungee','Bungee Shade','Bungee Inline','Righteous','Audiowide','Orbitron',
+  'Michroma','Syncopate','Tourney','Rubik Mono One','Bowlby One','Alfa Slab One','Anton',
+  'Archivo Black','Bebas Neue','Black Ops One','Titan One','Ultra','Staatliches','Six Caps',
+  'Faster One','Wallpoet','Iceberg','Codystar','Monofett','Nabla','Nosifer','Rampart One',
+  'Silkscreen','Press Start 2P','Vast Shadow','Shrikhand','Fugaz One','Carter One','Lobster',
+  'Lobster Two','Pacifico','Great Vibes','Kaushan Script','Sacramento','Satisfy','Yellowtail',
+  'Playball','Poiret One','Permanent Marker','Rock Salt','Chewy','Cinzel'];
+const PRESETS = ['#ff2d95','#35d6ff','#3dff88','#ffae2b','#b06bff','#ff3b3b','#ffffff'];
+const CAPS = new Set(Neon.CAPS_FONTS);
+
+/* ── hash hooks (headless capture) ────────────────────────────────────────────
+   #t=TEXT · #mode=cascade · #font=Monoton · #c=ff2d95 · #k=ffffff
+   #s=hug:1,dots:9000 · #f=N (run N frames, freeze, hide panel)
+   Keys are delimiter-anchored: an unanchored /t=/ also matches the "t=" inside
+   "font=Monoton", which silently renders the font name as the sign's text.
+   NB changing ONLY the hash does not reload the document - bump a query param
+   too, or you screenshot a stale frame and report a bug that isn't there.     */
+const hashGet = k => location.hash.match(new RegExp('(?:^|[#&])' + k + '=([^&#]+)'));
+const opts = {};
+{
+  const t = hashGet('t'), m = hashGet('mode'), c = hashGet('c'), k = hashGet('k'), s = hashGet('s');
+  if (t) opts.text = decodeURIComponent(t[1]);
+  if (m) opts.mode = m[1];
+  if (c) opts.glow = '#' + c[1];
+  if (k) opts.core = '#' + k[1];
+  if (s) s[1].split(',').forEach(kv => { const [a,b] = kv.split(':');
+    if (a in Neon.DEFAULTS) opts[a] = +b; });
+}
+const hashFont = hashGet('font'), hashFreeze = hashGet('f');
+
+const sign = Neon.create('#stage', opts);
+
+/* ── panel ─────────────────────────────────────────────────────────────────── */
+const panel = document.getElementById('panel');
+panel.insertAdjacentHTML('beforeend', `
+  <div class="ttl">neon-text</div>
+  <div class="sub">assembly · strike · flash -
+    <a href="https://github.com/nirshribman/neon-text" id="repo" target="_blank" rel="noopener">source</a></div>
+  <h2>Looks</h2><div id="looks"></div>
+  <h2>Text</h2>
+  <div class="row"><input type="text" id="txt" maxlength="48" placeholder="type anything…   |  =  new line"></div>
+  <div class="row"><select id="fontsel">
+    <optgroup label="System - works offline">${Neon.SYS_FONTS.map(f=>`<option>${f}</option>`).join('')}</optgroup>
+    <optgroup label="Google - display &amp; script">${G_FONTS.map(f=>
+      `<option value="${f}">${f}${CAPS.has(f)?' - caps only':''}</option>`).join('')}</optgroup>
+  </select></div>
+  <div class="row"><input type="text" id="gfont" placeholder="…or any Google font name ⏎"></div>
+  <div id="fstat"></div>
+  <h2>Animation</h2><div id="modes"></div><div class="hint" id="modehint"></div>
+  <h2>Colour</h2>
+  <div id="swatches">${PRESETS.map(c=>`<i data-c="${c}" style="background:${c};color:${c}"></i>`).join('')}</div>
+  <div class="row cc">
+    <div><small>Glow</small><input type="color" id="glow"></div>
+    <div><small>Core</small><input type="color" id="corec"></div>
+  </div>`);
+
+/* the active look, or null once any manual change diverges from it - the grid
+   must answer "which look am I in", and after an edit the honest answer is none */
+let curLook = null;
+Object.keys(Neon.LOOKS).forEach(name => {
+  const b = document.createElement('button');
+  b.textContent = name; b.id = 'look_' + name;
+  b.onclick = () => { curLook = name; sign.look(name); syncPanel(); };
+  document.getElementById('looks').appendChild(b);
+});
+Object.keys(Neon.MODES).forEach(name => {
+  const b = document.createElement('button');
+  b.textContent = name; b.id = 'mode_' + name;
+  b.onclick = () => { curLook = null; sign.set({ mode:name }); syncPanel(); };
+  document.getElementById('modes').appendChild(b);
+});
+
+let group = 'Colour';
+for (const [g, key, label, min, max, step] of SLIDERS){
+  if (g !== group){ group = g; panel.insertAdjacentHTML('beforeend', `<h2>${g}</h2>`); }
+  panel.insertAdjacentHTML('beforeend',
+    `<div class="row" id="row_${key}"><label>${label} <output id="o_${key}"></output></label>
+     <input type="range" id="${key}" min="${min}" max="${max}" step="${step}"></div>`);
+  document.getElementById(key).addEventListener('input', e => {
+    curLook = null; sign.set({ [key]: +e.target.value }); readouts(); syncLooks();
+  });
+}
+panel.insertAdjacentHTML('beforeend', `
+  <h2>Frame</h2>
+  <div class="row"><select id="frame">
+    <option value="fill">Fill window</option><option value="16:9">16 : 9 - hero</option>
+    <option value="21:9">21 : 9 - banner</option><option value="1:1">1 : 1 - square</option>
+    <option value="4:5">4 : 5 - social</option>
+  </select></div>
+  <div class="acts"><button id="replay">▶ Replay</button>
+  <button id="share">Copy link</button><button id="export">Export code</button></div>
+  <div class="acts" style="margin-top:6px"><button id="solo">Hide panel</button><button id="reset">Reset</button></div>
+  <div class="hint" style="margin-top:12px">Space replay · H panel · move the cursor over the sign</div>`);
+
+document.body.insertAdjacentHTML('beforeend', `
+  <div id="exportwrap"><div id="exportdlg" role="dialog" aria-modal="true" aria-labelledby="exporttitle">
+    <h3 id="exporttitle">Use this sign on your page</h3>
+    <div class="sub">Two files and one call, pinned to this version - everything you've dialled
+      in is in the options. The sign is a dark object: give it a dark region of the page
+      (its top and bottom edges feather into whatever is behind them).
+      Google fonts load automatically.</div>
+    <textarea id="exportcode" readonly spellcheck="false"></textarea>
+    <div class="acts"><button id="exportcopy">Copy code</button><button id="exportclose">Close</button></div>
+  </div></div>`);
+
+/* ── wiring ────────────────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+function syncLooks(){
+  document.querySelectorAll('#looks button').forEach(b =>
+    b.classList.toggle('on', b.id === 'look_' + curLook));
+}
+$('txt').addEventListener('input', e => sign.set({ text: e.target.value }));
+$('fontsel').addEventListener('change', e => { curLook = null; setFont(e.target.value); });
+$('gfont').addEventListener('change', e => { if (e.target.value.trim()){ curLook = null; setFont(e.target.value.trim()); } });
+$('glow').addEventListener('input', e => { curLook = null; sign.set({ glow: e.target.value }); syncLooks(); });
+$('corec').addEventListener('input', e => { curLook = null; sign.set({ core: e.target.value }); syncLooks(); });
+document.querySelectorAll('#swatches i').forEach(s =>
+  s.onclick = () => { curLook = null; sign.set({ glow: s.dataset.c }); $('glow').value = s.dataset.c; syncLooks(); });
+$('replay').onclick = () => sign.replay();
+$('reset').onclick = () => { curLook = null; sign.set(Neon.DEFAULTS); syncPanel(); sign.replay(); };
+$('solo').onclick = toggleSolo;
+$('frame').addEventListener('change', e => setFrame(e.target.value));
+/* copy feedback must be HONEST: clipboard.writeText rejects on insecure
+   contexts and denied permission, and a false "✓ copied" on a copy-paste
+   feature sends the user off to paste code they do not have */
+async function copyFeedback(btn, text, idle){
+  try { await navigator.clipboard.writeText(text); btn.textContent = '✓ copied'; }
+  catch (err){ btn.textContent = '✗ press Ctrl+C'; }
+  setTimeout(() => btn.textContent = idle, 1400);
+}
+$('share').onclick = () => {
+  const d = Neon.DEFAULTS, o = sign.o;
+  const diff = Object.keys(d).filter(k =>
+    typeof d[k] === 'number' && o[k] !== d[k]).map(k => k + ':' + o[k]).join(',');
+  location.hash = `#t=${encodeURIComponent(o.text)}&mode=${o.mode}` +
+    `&font=${encodeURIComponent(o.font)}&c=${o.glow.slice(1)}&k=${o.core.slice(1)}` +
+    (diff ? `&s=${diff}` : '');
+  copyFeedback($('share'), location.href, 'Copy link');
+};
+/* ── export: a copy-paste snippet for an external page ─────────────────────────
+   Only the diff from DEFAULTS is emitted - the point of the snippet is to be
+   READ on the other side, and 25 lines of defaults bury the 4 that matter.
+   URLs are PINNED to this engine's version via the jsDelivr tag CDN: an embed
+   pointing at mutable files breaks the day the library ships a breaking change,
+   and the version comment makes pasted code diagnosable years later. */
+const EXPORT_BASE = `https://cdn.jsdelivr.net/gh/nirshribman/neon-text@v${Neon.version}`;
+function exportSnippet(){
+  const d = Neon.DEFAULTS, o = sign.o, opts = [`    text: ${JSON.stringify(o.text)}`];
+  for (const k of Object.keys(d)){
+    if (k === 'text' || o[k] === d[k]) continue;
+    opts.push(`    ${k}: ${typeof o[k] === 'string' ? JSON.stringify(o[k]) : o[k]}`);
+  }
+  /* script tags written whole - OPENING ones included - derail THIS page's HTML
+     parser mid-string (verified: the document splits into 3 scripts and the
+     snippet source renders as page text). Concat keeps the parser out. */
+  const ST = '<scr' + 'ipt', SC = '</scr' + 'ipt>';
+  /* the mask feathers BOTH edges so the dark room dissolves into the host page
+     instead of ending in a razor-straight seam - asymmetric (short ramp on top,
+     long fade below) because host content usually sits closer above the sign
+     than below it. Emitted as a style block, not an inline attribute: a
+     ~205-character div line cannot be read in the snippet's own window, and
+     the snippet's point is to be READ. */
+  const FADE = 'linear-gradient(transparent, #000 12%, #000 72%, transparent)';
+  return `<!-- neon-text v${Neon.version} - github.com/nirshribman/neon-text -->
+<link rel="stylesheet" href="${EXPORT_BASE}/src/neon.css">
+${ST} src="${EXPORT_BASE}/src/neon.js">${SC}
+
+<style>
+  /* top and bottom feather into the host page - asymmetric on purpose:
+     host content usually sits closer above the sign than below it */
+  #neon-sign{
+    width:100%; height:420px;
+    mask-image:${FADE};
+    -webkit-mask-image:${FADE};
+  }
+</style>
+<div id="neon-sign"></div>
+${ST}>
+  Neon.create('#neon-sign', {
+${opts.join(',\n')}
+  });
+${SC}`;
+}
+function openExport(){
+  const ta = $('exportcode');
+  ta.value = exportSnippet();
+  $('exportwrap').classList.add('open');
+  /* the Tab trap is keyboard-only; inert makes the background dead to a screen
+     reader's virtual cursor too */
+  $('panel').inert = true; $('hold').inert = true;
+  ta.style.height = 'auto';                        // size to the snippet, not to a guess
+  ta.style.height = Math.min(340, ta.scrollHeight + 4) + 'px';
+  ta.focus(); ta.select();
+}
+function closeExport(){
+  if (!$('exportwrap').classList.contains('open')) return;
+  $('exportwrap').classList.remove('open');
+  $('panel').inert = false; $('hold').inert = false;
+  $('export').focus();                             // focus returns where it came from
+}
+$('export').onclick = openExport;
+$('exportclose').onclick = closeExport;
+$('exportwrap').onclick = e => { if (e.target.id === 'exportwrap') closeExport(); };
+$('exportcopy').onclick = () => copyFeedback($('exportcopy'), $('exportcode').value, 'Copy code');
+
+addEventListener('keydown', e => {
+  /* Escape first: the modal focuses the textarea on open, so an early return
+     for form fields would kill the one key everybody tries */
+  if (e.key === 'Escape'){ closeExport(); return; }
+  if ($('exportwrap').classList.contains('open') && e.key === 'Tab'){
+    /* trap: Tab cycles the dialog, never the obscured panel behind the scrim */
+    const ring = [$('exportcode'), $('exportcopy'), $('exportclose')];
+    const i = ring.indexOf(document.activeElement);
+    e.preventDefault();
+    ring[(i + (e.shiftKey ? -1 : 1) + ring.length) % ring.length].focus();
+    return;
+  }
+  /* swallow only what the focused control actually uses: a blanket return for
+     BUTTON/range killed the H shortcut after any click until focus moved */
+  if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  /* range sliders pass letters through (H keeps working) but keep Space: a
+     user nudging a slider should not trigger a full restart */
+  if (e.target.type === 'range' && e.code === 'Space') return;
+  if (e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'BUTTON' && (e.code === 'Space' || e.key === 'Enter')) return;
+  if (e.target.id === 'exportcode') return;        // typing/selecting in the snippet
+  if (e.code === 'Space'){ e.preventDefault(); sign.replay(); }
+  if (e.key.toLowerCase() === 'h') toggleSolo();
+});
+
+async function setFont(name){
+  const stat = $('fstat');
+  stat.style.color = '#5c5c66'; stat.textContent = 'loading ' + name + '…';
+  const r = await Neon.loadFont(name);
+  if (!r.ok){ stat.style.color = '#c86a6a';
+    stat.textContent = `✗ no Google font "${name}" (or offline)`; return; }
+  sign.set({ font: name });
+  if (r.caps){ stat.style.color = '#d8a05a';
+    stat.textContent = `✓ ${name} - caps-only face, lowercase renders as capitals`; }
+  else { stat.style.color = '#7fd8c4'; stat.textContent = '✓ ' + name; }
+  $('fontsel').value = name;
+}
+
+let FRAME = 'fill';
+function setFrame(name){
+  FRAME = name;
+  const hold = $('hold'), stage = $('stage');
+  document.body.classList.toggle('framed', name !== 'fill');
+  if (name === 'fill'){ stage.style.width = stage.style.height = '100%'; }
+  else {
+    const [aw, ah] = name.split(':').map(Number), pad = 34,
+          s = Math.min((hold.clientWidth - pad*2) / aw, (hold.clientHeight - pad*2) / ah);
+    stage.style.width = Math.round(aw * s) + 'px';
+    stage.style.height = Math.round(ah * s) + 'px';
+  }
+  sign.resize();
+}
+function toggleSolo(){
+  /* hiding the panel must not strand keyboard focus on a hidden control */
+  if (!document.body.classList.contains('solo') &&
+      panel.contains(document.activeElement)) document.activeElement.blur();
+  document.body.classList.toggle('solo');
+  setTimeout(() => setFrame(FRAME), 30);          // panel width changed → re-fit
+}
+addEventListener('resize', () => { clearTimeout(window._rt); window._rt = setTimeout(() => setFrame(FRAME), 140); });
+
+function readouts(){
+  for (const [, key] of SLIDERS){
+    const o = $('o_' + key); if (!o) continue;
+    o.textContent = sign.o[key];
+    if (key === 'dots'){                          // surface the perf ceiling
+      const heavy = sign.o.dots > Neon.DOTS_SMOOTH;
+      o.style.color = heavy ? '#d8a05a' : '#d8d8dd';
+      o.textContent = sign.o.dots + (heavy ? ' ⚠' : '');
+      o.title = heavy ? `above ~${Neon.DOTS_SMOOTH} dots this drops below 60fps` : '';
+    }
+  }
+}
+function syncPanel(){
+  const o = sign.o;
+  for (const [, key, , , , , modes] of SLIDERS){
+    const el = $(key); if (!el) continue;
+    el.value = o[key];
+    const off = modes && !modes.includes(o.mode);
+    el.disabled = off; $('row_' + key).style.opacity = off ? .5 : 1;
+  }
+  $('txt').value = o.text; $('glow').value = o.glow; $('corec').value = o.core;
+  $('fontsel').value = o.font;
+  document.querySelectorAll('#modes button').forEach(b =>
+    b.classList.toggle('on', b.id === 'mode_' + o.mode));
+  syncLooks();
+  $('modehint').textContent = Neon.MODES[o.mode];
+  readouts();
+}
+
+/* ── boot ──────────────────────────────────────────────────────────────────── */
+(async function(){
+  if (hashFont) await setFont(decodeURIComponent(hashFont[1]));
+  syncPanel();
+  if (hashFreeze && /^\d+$/.test(hashFreeze[1])){
+    /* Hiding the panel RESIZES the stage, and the engine's ResizeObserver
+       fires asynchronously - after the frame loop below. It would rebuild the
+       sign and wipe the frozen frame. So: hide first, let layout and the
+       observer settle, and only then drive the frames. */
+    $('panel').style.display = 'none';
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    sign.resize();
+    sign.pause(); sign.replay();
+    const n = +hashFreeze[1];
+    for (let i = 0; i < n; i++) sign.step();     // exact frame, reproducible
+  }
+})();
+</script>

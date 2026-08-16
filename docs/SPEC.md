@@ -53,13 +53,21 @@ Every mode is the same machinery with a different per-character strike-frame sch
 | `random` | same, deterministically shuffled |
 | `wave` | all lit early, then a travelling `sin(F - i·φ)⁶` pulse |
 | `assemble` | shape first, light second: particles build, then ignite |
+| `trace` | `t0 = -∞` (steady); a sweep window in `_env` owns frames `T_TRACE … +1.3·TRACE_LEN`. The front runs across the **measured ink bounds** (`inkL/inkR`), each letter fills as `(front - x)/w`, with a Gaussian hot head. No per-letter flash - the sweep is the event. The front overshoots `inkR` so the head fades off the end instead of popping on the last letter |
+| `broken` | `t0 = T_OFF` (quick shared ignition); one or two letters (picked deterministically per text, so replays show the same fault) run a 320-frame failure cycle in the steady state: tired → stutter → dead with failed re-strikes → one honest flash → settle |
+| `drain` | the **exit**. `t0 = -∞` (lit from frame 0); at `T_DRAIN` the power cuts. Letters die in a `ch.i·3`-frame ripple with a dying stutter; the spring lets go with the light (`k → 0`), per-dot buoyancy lifts the gas, and `dim` fades the gas itself to nothing - `lit` alone only unlights dots, it never removes them |
 | `instant` | `t0 = 0` |
+
+`EXIT_MODES = ['drain']` - the one mode that takes content **off** the page. Under reduced motion an
+exit renders its end state (the dead sign) immediately; a drain that stayed lit would never exit.
 
 ## Constraints
 
 - **WCAG 2.3.1** - max 3 flashes/second; the general-flash threshold applies above ~25% of the
   viewport. The wide flash fires **once**, only in `strike`. Per-letter modes get a tight bloom
-  radius (~17% vs 55%) at about a third the opacity. Don't raise `pulses` above 3.
+  radius (~17% vs 55%) at about a third the opacity. Don't raise `pulses` above 3. `broken`'s
+  stutter uses 5-frame hash blocks (~2.4 flashes/sec average, one letter, near-zero bloom) to stay
+  under the line with margin.
 - **`prefers-reduced-motion`** - no assembly, flicker or flash; dots start on target so the first
   painted frame is the finished legible sign.
 - **Accessibility** - `role="img"` + `aria-label` with the full string. Per-character absolute spans

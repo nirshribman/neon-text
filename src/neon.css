@@ -1,4 +1,4 @@
-/* neon-text v1.0.0 - scene styles
+/* neon-text v1.1.0 - scene styles
    Everything is scoped to .neon-scene and driven by custom properties set on
    that element (never on :root), so several signs can share a page. */
 
@@ -9,6 +9,7 @@
   --nc: #ff2d95;      /* current glow colour            */
   --br: 55%;          /* bloom radius                   */
   --bx: 50%;          /* bloom centre, % across scene   */
+  --px: 50%;          /* pool centre - the lit centroid, not the loudest letter */
   --pool: 0;          /* floor light intensity          */
   --room: 1;          /* wall/floor/vignette presence   */
   --wall: #17171b;    /* wall tint                      */
@@ -39,7 +40,7 @@
   left: 0; right: 0; top: var(--floor); height: 52%; z-index: 3;
   pointer-events: none; mix-blend-mode: screen;
   opacity: calc(var(--pool) * var(--room));
-  background: radial-gradient(58% 100% at var(--bx) 0%, var(--nc) 0%, transparent 72%);
+  background: radial-gradient(58% 100% at var(--px) 0%, var(--nc) 0%, transparent 72%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 60%, transparent 100%);
           mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 60%, transparent 100%);
 }
